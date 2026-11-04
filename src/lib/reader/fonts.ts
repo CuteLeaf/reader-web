@@ -6,6 +6,7 @@
  * 族名由 id 派生，避免与系统字体同名冲突。
  */
 import { deleteFont as dbDeleteFont, listFonts, putFont, type StoredFont } from '../storage/db';
+import { uuid } from '../uuid';
 
 export interface LocalFont {
   id: string;
@@ -75,7 +76,7 @@ export async function importFontFile(file: File): Promise<LocalFont> {
   if (file.size > MAX_SIZE) throw new Error('字体文件超过 48MB，浏览器读取会很慢');
 
   const data = await file.arrayBuffer();
-  const id = crypto.randomUUID();
+  const id = uuid();
   const row: StoredFont = {
     id,
     name: fontDisplayName(file.name),

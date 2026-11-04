@@ -4,6 +4,7 @@
  */
 import type { Book, Chapter, LocalFormat } from '../types';
 import { putBook, putChapters, putFile, putText } from '../storage/db';
+import { uuid } from '../uuid';
 import { decodeBuffer, normalizeText, splitByHeadings, splitTxt } from './text';
 import { parseEpub } from './epub';
 
@@ -84,7 +85,7 @@ export async function importFile(file: File): Promise<ImportResult> {
 
   const buf = await file.arrayBuffer();
   const now = Date.now();
-  const id = `local:${crypto.randomUUID()}`;
+  const id = `local:${uuid()}`;
 
   let text: string;
   let chapters: Chapter[];
