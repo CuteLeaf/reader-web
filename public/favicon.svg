@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Reader Web">
+  <defs>
+    <linearGradient id="tile" x1="10" y1="6" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c9664a" />
+      <stop offset="1" stop-color="#a94a32" />
+    </linearGradient>
+  </defs>
+
+  <rect width="64" height="64" rx="15" fill="url(#tile)" />
+
+  <!-- 左页：上缘略弧、外角圆、内缘落在书脊，底部向书沟下沉 -->
+  <path
+    d="M31 22.4C27.4 20.2 23.4 19.3 19.6 19.7 18.7 19.8 18 20.6 18 21.5V41.4C18 42.9 19.3 44.1 20.8 43.9 24.4 43.5 28 44.3 31 45.4Z"
+    fill="#fff"
+    opacity=".97"
+  />
+  <!-- 右页：暗一档，交代翻开的层次 -->
+  <path
+    d="M33 22.4C36.6 20.2 40.6 19.3 44.4 19.7 45.3 19.8 46 20.6 46 21.5V41.4C46 42.9 44.7 44.1 43.2 43.9 39.6 43.5 36 44.3 33 45.4Z"
+    fill="#fff"
+    opacity=".84"
+  />
+  <!-- 书脊 -->
+  <path
+    d="M32 23.6V44"
+    stroke="#8f3c27"
+    stroke-opacity=".4"
+    stroke-width="1.6"
+    stroke-linecap="round"
+  />
+</svg>

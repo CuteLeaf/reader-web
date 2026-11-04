@@ -1,0 +1,40 @@
+{
+  "name": "reader-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Web 平台小说阅读器，支持 TXT / EPUB 导入本地离线阅读，或发现局域网内的「Legado 3.0」后端服务，直接在浏览器中阅读。",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "format": "prettier --write \"**/*.{ts,js,mjs,json,svelte,astro,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,js,mjs,json,svelte,astro,css}\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "check": "astro check && svelte-check --tsconfig ./tsconfig.json",
+    "quality": "pnpm format:check && pnpm lint && pnpm check",
+    "preview": "astro preview",
+    "mock": "node scripts/mock-legado.mjs",
+    "serve:dist": "node scripts/serve-dist.mjs"
+  },
+  "dependencies": {
+    "@astrojs/svelte": "^9.1.2",
+    "astro": "^7.4.5",
+    "fflate": "^0.8.3",
+    "svelte": "^5.57.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.12",
+    "@eslint/js": "^10.0.1",
+    "eslint": "10.14.0",
+    "eslint-plugin-svelte": "3.24.0",
+    "globals": "17.14.0",
+    "prettier": "3.9.10",
+    "prettier-plugin-astro": "1.1.2",
+    "prettier-plugin-svelte": "4.1.1",
+    "svelte-check": "4.7.8",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "8.72.1"
+  },
+  "packageManager": "pnpm@11.22.0"
+}

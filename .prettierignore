@@ -1,0 +1,8 @@
+# 依赖与产物
+node_modules
+dist
+.astro
+pnpm-lock.yaml
+
+# 文档保持人工排版（Prettier 会重排表格与中文段落）
+*.md

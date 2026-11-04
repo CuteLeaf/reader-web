@@ -1,0 +1,80 @@
+name: Deploy static site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      base_path:
+        description: '部署子路径，例如 /reader-web/（留空则用仓库名；根域名填 /）'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve base path & site url
+        id: vars
+        env:
+          INPUT_BASE: ${{ inputs.base_path }}
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          BASE="$INPUT_BASE"
+          if [ -z "$BASE" ]; then BASE="/${REPO_NAME}/"; fi
+          case "$BASE" in */) ;; *) BASE="${BASE}/" ;; esac
+          SITE="https://${GITHUB_REPOSITORY_OWNER}.github.io"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "site=$SITE" >> "$GITHUB_OUTPUT"
+          echo "### 构建参数" >> "$GITHUB_STEP_SUMMARY"
+          echo "- BASE_PATH: \`$BASE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- SITE_URL: \`$SITE\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build
+        env:
+          BASE_PATH: ${{ steps.vars.outputs.base }}
+          SITE_URL: ${{ steps.vars.outputs.site }}
+        run: pnpm build
+
+      - name: Verify dist
+        run: |
+          test -f dist/index.html || { echo "缺少 dist/index.html"; exit 1; }
+          echo "产物大小: $(du -sh dist | cut -f1)"
+          ls dist
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,77 @@
+---
+import '../styles/global.css';
+import App from '../components/App.svelte';
+
+const base = import.meta.env.BASE_URL;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="generator" content={Astro.generator} />
+    <title>阅读 · Web 小说阅读器</title>
+    <meta
+      name="description"
+      content="「Legado 3.0」Web 端：自动发现局域网内的阅读后端，或把 TXT / EPUB 导入浏览器本地，离线也能读。"
+    />
+    <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
+    <link rel="manifest" href={`${base}manifest.webmanifest`} />
+    <meta name="theme-color" content="#f6f4ef" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+  </head>
+  <body>
+    <div id="boot" class="boot">
+      <img class="boot-mark" src={`${base}favicon.svg`} alt="" width="54" height="54" />
+      <div class="boot-text" style="font-weight: bold;">
+        昨日邻家乞新火，晓窗分与读书灯
+      </div>
+      <div class="boot-text">正在唤醒书架…</div>
+    </div>
+    <App client:only="svelte" />
+    <noscript>
+      <p style="padding:40px;text-align:center;font-family:sans-serif">
+        本站是纯前端应用，需要启用 JavaScript。
+      </p>
+    </noscript>
+
+    <style is:global>
+      .boot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: var(--paper);
+        z-index: 10;
+      }
+      .boot-mark {
+        width: 54px;
+        height: 54px;
+        border-radius: 13px;
+        display: block;
+        opacity: 0.94;
+        animation: boot-pulse 1.9s ease-in-out infinite;
+      }
+      @keyframes boot-pulse {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 0.94;
+        }
+        50% {
+          transform: scale(0.965);
+          opacity: 0.8;
+        }
+      }
+      .boot-text {
+        font-size: 12.5px;
+        color: var(--sub);
+        letter-spacing: 1px;
+      }
+    </style>
+  </body>
+</html>

@@ -1,0 +1,3 @@
+# 仓库内统一使用 LF。Windows 默认 core.autocrlf=true 会把检出文件改成 CRLF，
+# 而 Prettier 的 format:check 按 LF 校验，容易造成本地通过 / CI 失败（或反之）。
+* text=auto eol=lf

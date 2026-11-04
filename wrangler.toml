@@ -1,0 +1,5 @@
+# Cloudflare Pages 配置（可选，用 wrangler CLI 部署时才需要）
+# 项目名需与 Cloudflare 上的 Pages 项目一致；改这里或改 --project-name 都行。
+name = "reader-web"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-01-01"
