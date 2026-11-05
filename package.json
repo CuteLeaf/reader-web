@@ -3,7 +3,7 @@
   "version": "1.0.1",
   "private": true,
   "type": "module",
-  "description": "Web 平台小说阅读器，支持 TXT / EPUB 导入本地离线阅读，或发现局域网内的「Legado 3.0」后端服务，直接在浏览器中阅读。",
+  "description": "Web 平台电子书阅读器，支持 TXT / EPUB 导入本地离线阅读，或发现局域网内的「Legado 3.0」后端服务，直接在浏览器中阅读。",
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",

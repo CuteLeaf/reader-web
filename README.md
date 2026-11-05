@@ -1,6 +1,6 @@
 <div align="center">
 
-Reader-Web 是一款免费的 Web 平台小说阅读器
+Reader-Web 是一款免费的 Web 平台电子书阅读器
 
 提供本地文件离线阅读和第三方后端连接
 

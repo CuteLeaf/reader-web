@@ -1,7 +1,7 @@
 {
-  "name": "阅读 · Web 小说阅读器",
+  "name": "阅读 · 电子书 Web 阅读器",
   "short_name": "阅读",
-  "description": "Web 平台小说阅读器，支持 TXT / EPUB 导入本地离线阅读，或发现局域网内的「Legado 3.0」后端服务，直接在浏览器中阅读。",
+  "description": "Web 平台电子书阅读器，支持 TXT / EPUB 导入本地离线阅读，或发现局域网内的「Legado 3.0」后端服务，直接在浏览器中阅读。",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
