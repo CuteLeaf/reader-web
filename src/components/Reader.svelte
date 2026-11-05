@@ -372,6 +372,22 @@
       >
       <span>顶部</span>
     </button>
+    <button
+      onclick={() => scroller?.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' })}
+      title="回到底部"
+    >
+      <svg viewBox="0 0 24 24" width="16" height="16"
+        ><path
+          d="M12 5v13M6 12l6 6 6-6"
+          stroke="currentColor"
+          stroke-width="1.7"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        /></svg
+      >
+      <span>底部</span>
+    </button>
   </nav>
 
   <div class="scroller" bind:this={scroller} onscroll={onScroll}>
