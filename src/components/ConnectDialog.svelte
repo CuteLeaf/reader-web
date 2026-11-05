@@ -340,10 +340,20 @@
             onkeydown={(e) => e.key === 'Enter' && connectManual()}
           />
         </div>
-        <button class="btn" onclick={connectManual} disabled={!manual.trim() || !!connecting}
-          >连接</button
-        >
+        <button class="btn" onclick={connectManual} disabled={!manual.trim() || !!connecting}>
+          {connecting && manualBase && connecting === manualBase ? '连接中…' : '连接'}
+        </button>
       </div>
+
+      {#if connecting || app.endpointState === 'connecting'}
+        <p class="connect-note">
+          {app.connectNote || '正在连接…'}
+          <span class="muted">
+            手机端服务可能刚被唤醒，首次响应偏慢属正常；连不上会自动重试。
+            {isHttps ? '若地址栏提示「访问本地网络」，请选择允许。' : ''}
+          </span>
+        </p>
+      {/if}
 
       {#if manualBase}
         <p class="test-link">
@@ -619,6 +629,21 @@
 
   .field.grow {
     flex: 1;
+  }
+
+  .connect-note {
+    margin: 10px 0 0;
+    padding: 8px 11px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 11.5px;
+    line-height: 1.7;
+  }
+
+  .connect-note .muted {
+    margin-left: 4px;
+    color: var(--sub);
   }
 
   .test-link {

@@ -61,6 +61,8 @@ class AppStore {
   /* ------------------------- 数据源 ------------------------- */
   endpoint = $state<string | null>(null);
   endpointState = $state<'idle' | 'connecting' | 'online' | 'offline'>('idle');
+  /** 连接过程提示：唤醒中 / 第 2 次重试，给连接框显示，避免看着像卡死 */
+  connectNote = $state('');
   localBooks = $state<Book[]>([]);
   remoteBooks = $state<Book[]>([]);
   filter = $state<ShelfFilter>('all');
@@ -172,10 +174,14 @@ class AppStore {
     const last = preset || loadLastEndpoint();
 
     if (preset) {
-      await this.connect(preset, { silent: true });
+      const ok = await this.connect(preset, { silent: true });
       this.restoreFromHash();
+      if (!ok) this.retryConnectLater(preset);
     } else if (last) {
-      void this.connect(last, { silent: true }).then(() => this.restoreFromHash());
+      void this.connect(last, { silent: true }).then((ok) => {
+        this.restoreFromHash();
+        if (!ok) this.retryConnectLater(last);
+      });
     } else {
       this.restoreFromHash();
     }
@@ -203,17 +209,28 @@ class AppStore {
 
   async connect(rawBase: string, opts: { silent?: boolean } = {}): Promise<boolean> {
     this.endpointState = 'connecting';
+    this.connectNote = '';
     try {
-      const info = await probeEndpoint(rawBase, 5000);
+      // 手机端 Web 服务会休眠：首包常超时，重试一次通常就通，所以给 3 次机会。
+      // probeEndpoint 顺手把书架解析好，这里不再单独发一遍 /getBookshelf（大书架能省十几兆流量）
+      const info = await probeEndpoint(rawBase, 6000, {
+        attempts: 3,
+        onAttempt: (attempt, attempts) => {
+          this.connectNote =
+            attempt === 1 ? '正在唤醒手机端服务…' : `第 ${attempt}/${attempts} 次重试…`;
+        },
+      });
+      this.connectNote = '';
       this.endpoint = info.base;
       saveLastEndpoint(info.base);
-      const books = await fetchBookshelf(info.base);
-      this.remoteBooks = books;
+      this.remoteBooks = info.books;
       this.endpointState = 'online';
       void this.probeSourceToken(info.base);
-      if (!opts.silent) this.toast(`已连接 · ${info.base} · 书架 ${books.length} 本`, 'success');
+      if (!opts.silent)
+        this.toast(`已连接 · ${info.base} · 书架 ${info.books.length} 本`, 'success');
       return true;
     } catch (e) {
+      this.connectNote = '';
       this.endpointState = 'offline';
       this.remoteBooks = [];
       // 记住的「局域网」筛选在后端连不上时只会显示空书架，暂时回退到全部；
@@ -222,6 +239,19 @@ class AppStore {
       if (!opts.silent) this.toast((e as Error).message || '连接失败', 'error');
       return false;
     }
+  }
+
+  /**
+   * 启动时的静默连接失败后再补一次：Android 端 Web 服务可能要十几秒才醒过来，
+   * 用户往往就是「再点一次就连上了」。这里替他把这一次补上（只补一次）。
+   */
+  private retryConnectLater(base: string): void {
+    setTimeout(() => {
+      if (this.endpoint || this.endpointState === 'connecting') return;
+      void this.connect(base, { silent: true }).then((ok) => {
+        if (ok) this.restoreFromHash();
+      });
+    }, 5000);
   }
 
   openEditor(kind: SourceKind, source: AnySource | null): void {
@@ -278,6 +308,7 @@ class AppStore {
     this.endpoint = null;
     this.sourceTokenRequired = null;
     this.endpointState = 'idle';
+    this.connectNote = '';
     this.remoteBooks = [];
     this.catalogCache.clear();
     this.contentCache.clear();

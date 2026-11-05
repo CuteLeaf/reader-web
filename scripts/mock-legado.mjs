@@ -1,9 +1,11 @@
 /**
  * 「Legado 3.0」Web 后端模拟器（仅用于开发自测）。
  *
- *   node scripts/mock-legado.mjs [--port 1122] [--delay 300]
+ *   node scripts/mock-legado.mjs [--port 1122] [--delay 300] [--stall-shelf 2]
  *
  * `--delay` 给正文接口加固定延迟（毫秒），用来观察预加载、加载态等真实网络下的表现。
+ * `--stall-shelf N` 让前 N 次 /getBookshelf 挂起 10 秒不响应，模拟安卓端 Web 服务休眠，
+ * 用来验证连接失败后的自动重试。
  * 接口与真实后端一致，并且带 CORS 头，方便本地验证「扫描 → 连接 → 阅读」全链路。
  */
 import { createServer } from 'node:http';
@@ -13,6 +15,9 @@ const portArg = args.indexOf('--port');
 const PORT = portArg > -1 ? Number(args[portArg + 1]) : 1122;
 const delayArg = args.indexOf('--delay');
 const DELAY = delayArg > -1 ? Number(args[delayArg + 1]) : 0;
+const stallArg = args.indexOf('--stall-shelf');
+const STALL_SHELF = stallArg > -1 ? Number(args[stallArg + 1]) : 0;
+let shelfHits = 0;
 const STARTED = Date.now();
 
 const CATALOG = [
@@ -134,6 +139,13 @@ const server = createServer((req, res) => {
   }
 
   if (url.pathname === '/getBookshelf') {
+    shelfHits += 1;
+    console.log(`[mock] getBookshelf #${shelfHits} +${Date.now() - STARTED}ms`);
+    if (shelfHits <= STALL_SHELF) {
+      // 挂着不回：真实场景是手机端服务还在唤醒，客户端会先超时
+      setTimeout(() => json(res, { data: BOOKS }), 10000);
+      return;
+    }
     json(res, { data: BOOKS });
     return;
   }

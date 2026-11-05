@@ -16,6 +16,16 @@ export interface ProbeResult {
   latency: number;
   bookCount: number;
   titles: string[];
+  /** 探测时顺手解析好的书架，调用方直接复用，避免再发一遍 /getBookshelf */
+  books: Book[];
+}
+
+export interface ProbeOptions {
+  /** 总尝试次数，默认 1；手机端 Web 服务刚唤醒时首包经常超时，连接流程可以给 3 次 */
+  attempts?: number;
+  /** 每次尝试开始前回调，用来显示「第 2 次重试」 */
+  onAttempt?: (attempt: number, attempts: number) => void;
+  signal?: AbortSignal;
 }
 
 export class LegadoError extends Error {
@@ -127,27 +137,53 @@ async function getJson<T>(
   return unwrap<T>(await getRaw<unknown>(url, timeout, signal));
 }
 
-/** 探测一个地址是否是「Legado 3.0」后端；成功返回书架摘要 */
-export async function probeEndpoint(base: string, timeout = 3000): Promise<ProbeResult> {
+/**
+ * 探测一个地址是否是「Legado 3.0」后端；成功返回书架摘要。
+ *
+ * 手机端的 Web 服务在锁屏/后台一段时间后会休眠，第一包经常 5 秒以上才响应，
+ * 或者干脆像断网一样超时——重试一次通常就通了，所以连接流程传 attempts: 3。
+ */
+export async function probeEndpoint(
+  baseInput: string,
+  timeout = 6000,
+  opts: ProbeOptions = {},
+): Promise<ProbeResult> {
+  // 允许用户/链接里直接写 192.168.1.5:1122 这种不带协议的地址
+  const base = normalizeBase(baseInput);
   if (isMixedContent(base)) {
     throw new LegadoError(
       '当前页面是 HTTPS，不能请求公网 HTTP 地址；请改用 HTTPS 后端或反向代理',
       'mixed-content',
     );
   }
-  const t0 = performance.now();
-  const shelf = await getJson<LegadoBook[]>(`${base}/getBookshelf`, timeout);
-  const latency = Math.round(performance.now() - t0);
-  const list = Array.isArray(shelf) ? shelf : [];
-  return {
-    base,
-    latency,
-    bookCount: list.length,
-    titles: list
-      .slice(0, 3)
-      .map((b) => b.name)
-      .filter((name): name is string => !!name),
-  };
+
+  const attempts = Math.max(1, opts.attempts ?? 1);
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    opts.onAttempt?.(attempt, attempts);
+    const t0 = performance.now();
+    try {
+      const shelf = await getJson<LegadoBook[]>(`${base}/getBookshelf`, timeout, opts.signal);
+      const latency = Math.round(performance.now() - t0);
+      const books = mapShelf(Array.isArray(shelf) ? shelf : []);
+      return {
+        base,
+        latency,
+        bookCount: books.length,
+        titles: books.slice(0, 3).map((b) => b.title),
+        books,
+      };
+    } catch (e) {
+      lastError = e;
+      if (opts.signal?.aborted) break;
+      // 只有「超时 / 连接被断」值得重试；CORS 与格式错误重试多少次都一样
+      const kind = e instanceof LegadoError ? e.kind : 'parse';
+      if (kind !== 'network' || attempt >= attempts) break;
+      await new Promise((r) => setTimeout(r, attempt === 1 ? 350 : 900));
+    }
+  }
+  throw lastError;
 }
 
 interface LegadoBook {
@@ -166,6 +202,11 @@ interface LegadoBook {
 export async function fetchBookshelf(base: string, signal?: AbortSignal): Promise<Book[]> {
   const shelf = await getJson<LegadoBook[]>(`${base}/getBookshelf`, 20000, signal);
   if (!Array.isArray(shelf)) throw new LegadoError('书架数据格式异常', 'parse');
+  return mapShelf(shelf);
+}
+
+/** 把后端原始书架条目统一成 Book（探测与正常拉取共用，避免两份映射逻辑走偏） */
+function mapShelf(shelf: LegadoBook[]): Book[] {
   return shelf
     .filter((b) => b && b.bookUrl)
     .map((b) => ({
