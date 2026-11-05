@@ -34,10 +34,12 @@ import {
   saveBookProgress,
 } from '../lib/sources/legado';
 import {
+  checkSourceToken,
   deleteRemoteBook,
   fetchTokenRequired,
   type AnySource,
   type SourceKind,
+  type TokenCheckResult,
 } from '../lib/sources/sources';
 import {
   customFontStack,
@@ -102,6 +104,33 @@ class AppStore {
   get sourceToken(): string {
     return this.endpoint ? (this.tokens[this.endpoint] ?? '') : '';
   }
+
+  /**
+   * 全项目唯一的「要不要令牌」判断：书源 / 订阅源管理、
+   * 通用验证组件、所有写请求都用这一个值。
+   * MD3（该接口 404 → null）和明确关闭令牌的后端（false）都返回 false，
+   * 因此不会出现「后端没令牌、界面上却挂着令牌设置」的情况。
+   */
+  get needsSourceToken(): boolean {
+    return this.sourceTokenRequired === true;
+  }
+
+  /**
+   * 任意读写被后端以令牌 / 鉴权错误拒绝时调用：按需开启令牌验证。
+   * 只有真的报过错才把能力标记为需要，不会凭探测失败就给 MD3 加自定义头。
+   */
+  markTokenAuthError(): void {
+    this.sourceTokenRequired = true;
+  }
+
+  /**
+   * 所有书源相关写请求统一取这个值：只有后端明确要求令牌时才带自定义头
+   * （MD3 的 CORS 只放行 content-type，多带头会让预检失败）。
+   */
+  get tokenForWrite(): string | undefined {
+    return this.needsSourceToken ? this.sourceToken || undefined : undefined;
+  }
+
   importOpen = $state(false);
   catalogOpen = $state(false);
   settingsOpen = $state(false);
@@ -222,6 +251,8 @@ class AppStore {
       });
       this.connectNote = '';
       this.endpoint = info.base;
+      // 换后端后重新判断令牌能力，避免沿用上一个后端的结论
+      this.sourceTokenRequired = null;
       saveLastEndpoint(info.base);
       this.remoteBooks = info.books;
       this.endpointState = 'online';
@@ -282,13 +313,27 @@ class AppStore {
     this.sourceTokenRequired = await fetchTokenRequired(base);
   }
 
+  /**
+   * 通用的书源访问令牌校验：书源 / 订阅源管理都走这里。
+   * 校验通过才写入本机，校验失败不会覆盖原有令牌；结果由通用验证组件展示，
+   * 不需要跳到书源管理页。
+   */
+  async verifySourceToken(token: string): Promise<TokenCheckResult> {
+    const base = this.endpoint;
+    if (!base || this.endpointState !== 'online') {
+      return { ok: false, message: '后端未连接，无法验证令牌' };
+    }
+    const result = await checkSourceToken(base, token);
+    if (result.ok) this.setSourceToken(token);
+    return result;
+  }
+
   /** 删除远端书籍（走 /deleteBook，body 是 Book 对象） */
   async removeRemoteBook(book: Book): Promise<void> {
     if (!this.endpoint || !book.bookUrl) return;
     const body = book.raw ?? { bookUrl: book.bookUrl, name: book.title, author: book.author ?? '' };
     // 只有后端明确要求时才带自定义头：MD3 的 CORS 只放行 content-type，多带头会让预检失败
-    const token = this.sourceTokenRequired === true ? this.sourceToken || undefined : undefined;
-    await deleteRemoteBook(this.endpoint, body, token);
+    await deleteRemoteBook(this.endpoint, body, this.tokenForWrite);
     this.remoteBooks = this.remoteBooks.filter((b) => b.id !== book.id);
     if (this.current?.id === book.id) this.backToShelf();
     this.toast(`已从手机删除《${book.title}》`, 'info');
@@ -638,9 +683,6 @@ class AppStore {
     const raw = book.raw ?? {};
     const name = typeof raw.name === 'string' ? raw.name : book.title;
     const author = typeof raw.author === 'string' ? raw.author : (book.author ?? '');
-    // 只有后端明确要求令牌时才带头：MD3 的 CORS 只放行 content-type
-    const token = this.sourceTokenRequired === true ? this.sourceToken || undefined : undefined;
-
     try {
       await saveBookProgress(
         this.endpoint,
@@ -653,7 +695,7 @@ class AppStore {
           durChapterTime: time,
           durChapterTitle: title,
         },
-        token,
+        this.tokenForWrite,
         { keepalive: opts.keepalive },
       );
       this.applyProgress(book.id, index, pos, title, time);

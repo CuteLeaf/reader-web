@@ -8,11 +8,11 @@
     parseSourceJson,
     saveSource,
     saveSources,
-    verifyToken,
     type AnySource,
     type SourceKind,
   } from '../lib/sources/sources';
   import { describeError } from '../lib/sources/legado';
+  import TokenGate from './TokenGate.svelte';
 
   const PAGE_SIZE = 40;
 
@@ -24,12 +24,14 @@
   let keyword = $state('');
   let onlyEnabled = $state(false);
   let page = $state(1);
-  let tokenInput = $state(app.sourceToken);
-  /** 需要令牌但还没验证通过时，先不给加载 */
-  let gated = $state(false);
-  let gateToken = $state(app.sourceToken);
-  let gateError = $state('');
-  let verifying = $state(false);
+  type GatePhase = 'idle' | 'verifying' | 'ok' | 'fail';
+  type TokenGateApi = { show: (text?: string, phase?: GatePhase) => void };
+  /** 常驻挂载的通用令牌验证组件，不再自己写一套「保存令牌」输入 */
+  let tokenGate = $state<TokenGateApi | null>(null);
+  /** 门禁展开时先不给加载源列表 */
+  let gateOpen = $state(false);
+  let gatePhase = $state<GatePhase>('idle');
+  let gateMessage = $state('');
   let showImport = $state(false);
   let importText = $state('');
   let importing = $state(false);
@@ -50,9 +52,8 @@
   const pageCount = $derived(Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)));
   const pageItems = $derived(filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE));
   const enabledCount = $derived(all.filter((s) => metaOf(kind, s).enabled).length);
-  const tokenRequired = $derived(app.sourceTokenRequired);
-  /** 只有后端明确要求时才带令牌头 */
-  const writeToken = $derived(tokenRequired === true ? app.sourceToken || undefined : undefined);
+  /** 与书源搜索、通用组件共用同一个能力判断：MD3 下不出现任何令牌 UI */
+  const needsToken = $derived(app.needsSourceToken);
 
   $effect(() => {
     void keyword;
@@ -71,52 +72,37 @@
     untrack(() => {
       if (v === lastVersion) return;
       lastVersion = v;
-      if (!gated) void load(kind, true);
+      if (!gateOpen) void load(kind, true);
     });
   });
+
+  /** 统一走通用组件的 show()；组件尚未挂载时兜底直接展开门禁 */
+  function showGate(text = '', next: GatePhase = 'idle'): void {
+    if (tokenGate) tokenGate.show(text, next);
+    else {
+      gateOpen = true;
+      gatePhase = next;
+      gateMessage = text;
+    }
+  }
 
   async function init() {
     if (!app.endpoint) return;
     if (app.sourceTokenRequired === null) await app.probeSourceToken();
 
-    if (app.sourceTokenRequired === true) {
+    if (app.needsSourceToken) {
       // 该版本要令牌：先校验，通过了才去拉源列表（书源可能很大，不想白拉）
       if (!app.sourceToken) {
-        gated = true;
+        showGate();
         return;
       }
-      const ok = await verifyToken(app.endpoint, app.sourceToken);
-      if (!ok) {
-        gated = true;
-        gateError = '令牌无效或已过期，请重新输入';
+      const res = await app.verifySourceToken(app.sourceToken);
+      if (!res.ok) {
+        showGate(res.message, 'fail');
         return;
       }
     }
     await load('book');
-  }
-
-  async function unlockWithToken() {
-    if (!app.endpoint) return;
-    const token = gateToken.trim();
-    if (!token) {
-      gateError = '请输入令牌';
-      return;
-    }
-    verifying = true;
-    gateError = '';
-    try {
-      const ok = await verifyToken(app.endpoint, token);
-      if (!ok) {
-        gateError = '令牌不正确，检查手机上的「书源访问令牌」';
-        return;
-      }
-      app.setSourceToken(token);
-      app.sourceTokenRequired = true;
-      gated = false;
-      await load(kind, true);
-    } finally {
-      verifying = false;
-    }
   }
 
   async function load(target: SourceKind, force = false) {
@@ -151,7 +137,7 @@
   async function toggle(source: AnySource) {
     if (!app.endpoint) return;
     const meta = metaOf(kind, source);
-    if (tokenRequired === true && !app.sourceToken) {
+    if (needsToken && !app.sourceToken) {
       error = '需要先在下方填入访问令牌才能修改源';
       return;
     }
@@ -160,11 +146,15 @@
     const prev = lists[kind];
     lists = { ...lists, [kind]: prev.map((s) => (sameSource(s, source) ? next : s)) };
     try {
-      await saveSource(app.endpoint, kind, next, writeToken);
+      await saveSource(app.endpoint, kind, next, app.tokenForWrite);
     } catch (e) {
       lists = { ...lists, [kind]: prev };
       error = describeError(e);
-      if ((e as { kind?: string }).kind === 'auth') app.sourceTokenRequired = true;
+      if ((e as { kind?: string }).kind === 'auth') {
+        // 后端真的拒绝令牌：打开统一的能力判断，并用同一个组件就地重验
+        app.markTokenAuthError();
+        showGate(describeError(e), 'fail');
+      }
     } finally {
       busyUrl = null;
     }
@@ -181,12 +171,16 @@
       return;
     busyUrl = meta.url;
     try {
-      await deleteSources(app.endpoint, kind, [source], writeToken);
+      await deleteSources(app.endpoint, kind, [source], app.tokenForWrite);
       lists = { ...lists, [kind]: lists[kind].filter((s) => !sameSource(s, source)) };
       app.toast(`已删除「${meta.name || meta.url}」`, 'info');
     } catch (e) {
       error = describeError(e);
-      if ((e as { kind?: string }).kind === 'auth') app.sourceTokenRequired = true;
+      if ((e as { kind?: string }).kind === 'auth') {
+        // 后端真的拒绝令牌：打开统一的能力判断，并用同一个组件就地重验
+        app.markTokenAuthError();
+        showGate(describeError(e), 'fail');
+      }
     } finally {
       busyUrl = null;
     }
@@ -211,15 +205,19 @@
     }
     importing = true;
     try {
-      if (valid.length === 1) await saveSource(app.endpoint, kind, valid[0], writeToken);
-      else await saveSources(app.endpoint, kind, valid, writeToken);
+      if (valid.length === 1) await saveSource(app.endpoint, kind, valid[0], app.tokenForWrite);
+      else await saveSources(app.endpoint, kind, valid, app.tokenForWrite);
       await load(kind, true);
       app.toast(`已导入 ${valid.length} 个${kind === 'book' ? '书源' : '订阅源'}`, 'success');
       importText = '';
       showImport = false;
     } catch (e) {
       error = describeError(e);
-      if ((e as { kind?: string }).kind === 'auth') app.sourceTokenRequired = true;
+      if ((e as { kind?: string }).kind === 'auth') {
+        // 后端真的拒绝令牌：打开统一的能力判断，并用同一个组件就地重验
+        app.markTokenAuthError();
+        showGate(describeError(e), 'fail');
+      }
     } finally {
       importing = false;
     }
@@ -244,48 +242,32 @@
     <div class="modal-header">
       <div>
         <div class="modal-title">书源 · 订阅源</div>
-        <div class="modal-desc">直接读写手机上的「阅读」，改动即时生效（写操作需要访问令牌）。</div>
+        <div class="modal-desc">直接读写手机上的「阅读」，改动即时生效。</div>
       </div>
       <button class="btn ghost sm" onclick={close}>✕</button>
     </div>
 
     <div class="modal-body">
-      {#if tokenRequired === true && app.sourceToken && !gated}
+      {#if needsToken && app.sourceToken && !gateOpen}
         <div class="hint-bar ok">已通过令牌校验，可读写源。</div>
-      {:else if tokenRequired === false}
-        <div class="hint-bar">该后端未启用令牌校验，可直接修改源。</div>
-      {:else if tokenRequired === null}
-        <div class="hint-bar">
-          这个版本的后端没有令牌机制（如 legado-with-MD3 分支），写操作会直接提交；
-          若提示令牌错误，再填入令牌即可。
-        </div>
+      {:else if needsToken && !gateOpen}
+        <div class="hint-bar">该后端要求书源访问令牌，请在下方验证后再修改源。</div>
       {/if}
 
-      {#if gated}
-        <div class="gate">
-          <div class="gate-icon">🔒</div>
-          <b>这个后端需要书源访问令牌</b>
-          <p>
-            手机端「阅读 → 我的 → 设置 → 其他设置 → Web 服务 → 书源访问令牌」里设置一个口令，
-            填到下面验证通过后才会加载源列表（令牌只保存在本机浏览器）。
-          </p>
-          <div class="gate-row">
-            <input
-              class="input"
-              type="password"
-              placeholder="粘贴令牌"
-              bind:value={gateToken}
-              onkeydown={(e) => e.key === 'Enter' && unlockWithToken()}
-            />
-            <button class="btn primary" onclick={unlockWithToken} disabled={verifying}>
-              {verifying ? '验证中…' : '验证并加载'}
-            </button>
-          </div>
-          {#if gateError}
-            <div class="err">{gateError}</div>
-          {/if}
-        </div>
-      {:else}
+      <TokenGate
+        bind:this={tokenGate}
+        bind:open={gateOpen}
+        bind:phase={gatePhase}
+        bind:message={gateMessage}
+        successHint={false}
+        title="这个后端需要书源访问令牌"
+        description="手机端「阅读 → 我的 → 设置 → 其他设置 → Web 服务 → 书源访问令牌」里设置一个口令，填到下面验证通过后才会加载源列表（令牌只保存在本机浏览器）。"
+        actionLabel="验证并加载"
+        placeholder="粘贴令牌"
+        onVerified={() => void load(kind, true)}
+      />
+
+      {#if !gateOpen}
         <div class="tabs">
           <button class="tab" class:active={kind === 'book'} onclick={() => switchKind('book')}>
             书源 <span>{lists.book.length || '—'}</span>
@@ -407,14 +389,8 @@
     <div class="modal-footer">
       <span class="foot">{endpointLabel}</span>
       <div class="spacer"></div>
-      {#if tokenRequired === true && !gated}
-        <input
-          class="input token"
-          placeholder="访问令牌 x-legado-token"
-          bind:value={tokenInput}
-          onkeydown={(e) => e.key === 'Enter' && app.setSourceToken(tokenInput)}
-        />
-        <button class="btn sm" onclick={() => app.setSourceToken(tokenInput)}>保存令牌</button>
+      {#if needsToken && !gateOpen}
+        <button class="btn sm" onclick={() => showGate()}>验证令牌</button>
       {/if}
       <button class="btn primary" onclick={close}>关闭</button>
     </div>
@@ -517,45 +493,6 @@
   .stats {
     font-size: 11px;
     color: var(--sub);
-  }
-
-  .gate {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    align-items: flex-start;
-    padding: 26px 20px;
-    margin: 6px 0 12px;
-    border-radius: 12px;
-    border: 1px dashed var(--line-strong);
-    background: var(--panel-soft);
-  }
-
-  .gate-icon {
-    font-size: 20px;
-  }
-
-  .gate b {
-    font-size: 13.5px;
-  }
-
-  .gate p {
-    margin: 0;
-    font-size: 11.5px;
-    color: var(--sub);
-    line-height: 1.7;
-    max-width: 560px;
-  }
-
-  .gate-row {
-    display: flex;
-    gap: 8px;
-    width: 100%;
-    max-width: 460px;
-  }
-
-  .gate .err {
-    width: 100%;
   }
 
   .list {
@@ -714,12 +651,6 @@
     font-size: 11px;
     color: var(--sub);
     font-variant-numeric: tabular-nums;
-  }
-
-  .token {
-    width: 190px;
-    height: 30px;
-    font-size: 11.5px;
   }
 
   @media (max-width: 760px) {

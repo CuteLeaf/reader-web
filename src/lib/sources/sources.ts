@@ -99,24 +99,45 @@ export async function fetchTokenRequired(base: string): Promise<boolean | null> 
   }
 }
 
+/** 令牌校验结果：成功 / 失败及可直接展示的原因 */
+export interface TokenCheckResult {
+  ok: boolean;
+  message: string;
+}
+
 /**
- * 校验令牌：拿一个必然不会写库的请求去试。
- * saveBookSource 传空对象时后端只会返回「源名称和URL不能为空」，
- * 于是「是否报令牌错」就成了一个无副作用的判定。
+ * 唯一的令牌校验实现：书源 / 订阅源管理都由通用验证组件调用。
+ *
+ * 用无副作用探测：向 /saveBookSource 提交空对象，后端先校验令牌，
+ * 通过后只会回「源名称和URL不能为空」，不会真的写库。这里把
+ * 「令牌不对 / 接口不存在 / 网络不通」分开，避免把网络故障误报成令牌正确。
  */
-export async function verifyToken(base: string, token: string): Promise<boolean> {
+export async function checkSourceToken(base: string, token: string): Promise<TokenCheckResult> {
+  const value = token.trim();
+  if (!value) return { ok: false, message: '请先输入书源访问令牌' };
   try {
     await request(`${base}/saveBookSource`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
-      token,
+      token: value,
     });
-    return true;
+    return { ok: true, message: '令牌验证通过，已保存在本机' };
   } catch (e) {
-    if (e instanceof LegadoError && e.kind === 'auth') return false;
-    // 不是令牌问题（比如接口不存在）就算通过，交给后续操作暴露真正原因
-    return true;
+    if (!(e instanceof LegadoError)) {
+      return { ok: false, message: `无法验证令牌：${(e as Error)?.message ?? '未知错误'}` };
+    }
+    if (e.kind === 'auth') {
+      return { ok: false, message: '令牌不正确或已过期，请核对手机端「书源访问令牌」后重试' };
+    }
+    // 后端已经放行令牌，只是空对象过不了书源的业务校验
+    if (/源名称和URL不能为空|数据不能为空|转换源失败|格式不对/.test(e.message)) {
+      return { ok: true, message: '令牌验证通过，已保存在本机' };
+    }
+    if (/没有该接口|404/.test(e.message)) {
+      return { ok: false, message: '这个版本的后端没有提供令牌校验接口，可直接重试搜索' };
+    }
+    return { ok: false, message: `无法验证令牌：${e.message}` };
   }
 }
 

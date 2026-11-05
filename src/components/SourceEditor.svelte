@@ -130,14 +130,13 @@
 
     saving = true;
     try {
-      const token = app.sourceTokenRequired === true ? app.sourceToken || undefined : undefined;
-      await saveSource(app.endpoint, app.editorKind, payload, token);
+      await saveSource(app.endpoint, app.editorKind, payload, app.tokenForWrite);
       app.toast(`已保存「${name}」`, 'success');
       app.editorOpen = false;
       app.sourcesVersion += 1;
     } catch (e) {
       error = describeError(e);
-      if ((e as { kind?: string }).kind === 'auth') app.sourceTokenRequired = true;
+      if ((e as { kind?: string }).kind === 'auth') app.markTokenAuthError();
     } finally {
       saving = false;
     }
