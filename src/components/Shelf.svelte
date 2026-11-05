@@ -186,7 +186,7 @@
         <span class="usage">本地存储</span>
       {/if}
       <div class="foot-right">
-        <span class="ver">reader-web v1.0.0</span>
+        <span class="ver">reader-web v1.0.1</span>
         {@render githubLink()}
       </div>
     </footer>
