@@ -15,6 +15,9 @@
 
   $effect(() => {
     void app.scrollToken;
+    // 换章后旧的滚动动画 / 按住滚动必须停掉，否则会把新章一起滚走
+    stopAnim();
+    stopHold();
     // 正文还没渲染时（骨架屏）算出来的 scrollHeight 是假的，等真正上屏后再定位
     if (app.contentLoading) return;
     const el = scroller;
@@ -76,29 +79,144 @@
   }
 
   const PAGE_RATIO = 0.88;
+  /** 1× 速度下滚一屏的目标时长；用的是可控动画，原生 smooth 无法调速 */
+  const BASE_DURATION = 340;
+  /** 1× 速度下「按住连续滚动」每秒走过的像素 */
+  const BASE_SPEED = 620;
+
+  const maxScroll = (el: HTMLDivElement): number => Math.max(0, el.scrollHeight - el.clientHeight);
+  const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+  const speed = (): number => clamp(Number(app.settings.scrollSpeed) || 1, 0.5, 3);
+
+  let animRaf = 0;
+  let animTarget = 0;
+  let holdDir: -1 | 0 | 1 = 0;
+  let holdRaf = 0;
+  let holdLast = 0;
+
+  function stopAnim(): void {
+    if (animRaf) cancelAnimationFrame(animRaf);
+    animRaf = 0;
+    animTarget = 0;
+  }
+
+  function stopHold(): void {
+    holdDir = 0;
+    if (holdRaf) cancelAnimationFrame(holdRaf);
+    holdRaf = 0;
+  }
+
+  /** 连按时按动画的目标位置判断边界，避免动画途中被误判成「还没到底」 */
+  function currentTop(el: HTMLDivElement): number {
+    return animRaf ? animTarget : el.scrollTop;
+  }
 
   function atBottom(): boolean {
     const el = scroller;
-    return !!el && el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+    return !!el && currentTop(el) + el.clientHeight >= el.scrollHeight - 8;
   }
 
   function atTop(): boolean {
-    return !!scroller && scroller.scrollTop <= 8;
+    const el = scroller;
+    return !!el && currentTop(el) <= 8;
   }
 
-  /** 向下翻一屏；到底了自动进入下一章 */
-  async function pageDown() {
+  function animateTo(el: HTMLDivElement, target: number): void {
+    stopAnim();
+    stopHold();
+    const from = el.scrollTop;
+    const to = clamp(target, 0, maxScroll(el));
+    const distance = Math.abs(to - from);
+    if (distance < 1) return;
+
+    // 距离越长动画略久，整体由设置里的速度倍率缩放
+    const base = clamp(
+      BASE_DURATION * Math.sqrt(distance / (el.clientHeight * PAGE_RATIO)),
+      110,
+      560,
+    );
+    const duration = base / speed();
+    if (duration < 45) {
+      el.scrollTop = to;
+      return;
+    }
+
+    animTarget = to;
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const t = clamp((now - t0) / duration, 0, 1);
+      el.scrollTop = from + (to - from) * (1 - Math.pow(1 - t, 3));
+      if (t < 1) {
+        animRaf = requestAnimationFrame(step);
+      } else {
+        animRaf = 0;
+        animTarget = 0;
+        el.scrollTop = to;
+      }
+    };
+    animRaf = requestAnimationFrame(step);
+  }
+
+  function stepAmount(el: HTMLDivElement, forcePage: boolean): number {
+    const page = el.clientHeight * PAGE_RATIO;
+    const mode = forcePage ? 'page' : app.settings.keyScrollMode;
+    if (mode === 'half') return page / 2;
+    if (mode === 'line')
+      return Math.max(20, Math.round(app.settings.fontSize * app.settings.lineHeight));
+    return page;
+  }
+
+  function scrollByStep(dir: 1 | -1, forcePage: boolean): void {
+    const el = scroller;
+    if (!el) return;
+    animateTo(el, currentTop(el) + dir * stepAmount(el, forcePage));
+  }
+
+  /** 按住 ↑↓ 不放持续滚动；到章首 / 章末时按原逻辑换一次章就停 */
+  function holdStep(now: number): void {
+    holdRaf = 0;
+    const el = scroller;
+    if (!el || !holdDir || app.settings.keyScrollMode !== 'continuous') return;
+    const dt = Math.min(64, Math.max(0, now - holdLast));
+    holdLast = now;
+    const limit = maxScroll(el);
+    const next = clamp(el.scrollTop + holdDir * BASE_SPEED * speed() * (dt / 1000), 0, limit);
+    el.scrollTop = next;
+    if ((holdDir > 0 && next >= limit - 1) || (holdDir < 0 && next <= 1)) {
+      const dir = holdDir;
+      stopHold();
+      if (dir < 0) pendingAnchor = 'bottom';
+      void go(dir);
+      return;
+    }
+    holdRaf = requestAnimationFrame(holdStep);
+  }
+
+  function startHold(dir: 1 | -1): void {
+    if (holdDir === dir && holdRaf) return;
+    stopAnim();
+    holdDir = dir;
+    holdLast = performance.now();
+    holdRaf = requestAnimationFrame(holdStep);
+  }
+
+  /** 向下：到底了自动进入下一章 */
+  async function pageDown(forcePage = false): Promise<void> {
     const el = scroller;
     if (!el) return;
     if (atBottom()) {
       await go(1);
       return;
     }
-    el.scrollBy({ top: el.clientHeight * PAGE_RATIO, behavior: 'smooth' });
+    if (!forcePage && app.settings.keyScrollMode === 'continuous') {
+      startHold(1);
+      return;
+    }
+    scrollByStep(1, forcePage);
   }
 
-  /** 向上翻一屏；到顶了回到上一章的末尾 */
-  async function pageUp() {
+  /** 向上：到顶了回到上一章的末尾 */
+  async function pageUp(forcePage = false): Promise<void> {
     const el = scroller;
     if (!el) return;
     if (atTop()) {
@@ -106,17 +224,30 @@
       await go(-1);
       return;
     }
-    el.scrollBy({ top: -el.clientHeight * PAGE_RATIO, behavior: 'smooth' });
+    if (!forcePage && app.settings.keyScrollMode === 'continuous') {
+      startHold(-1);
+      return;
+    }
+    scrollByStep(-1, forcePage);
   }
 
-  async function go(delta: number) {
+  async function go(delta: number): Promise<void> {
+    stopAnim();
+    stopHold();
     if (delta > 0) await app.nextChapter();
     else await app.prevChapter();
     await tick();
   }
 
-  function onKeydown(e: KeyboardEvent) {
+  function onKeyup(e: KeyboardEvent): void {
+    if ((e.key === 'ArrowDown' && holdDir === 1) || (e.key === 'ArrowUp' && holdDir === -1)) {
+      stopHold();
+    }
+  }
+
+  function onKeydown(e: KeyboardEvent): void {
     if (app.catalogOpen || app.settingsOpen) {
+      stopHold();
       if (e.key === 'Escape') {
         app.catalogOpen = false;
         app.settingsOpen = false;
@@ -136,17 +267,28 @@
         void go(1);
         break;
       case 'ArrowDown':
+        e.preventDefault();
+        // 连续模式由「按下 / 松开」驱动，忽略键盘自动重复
+        if (app.settings.keyScrollMode === 'continuous' && e.repeat) break;
+        void pageDown();
+        break;
       case 'PageDown':
       case ' ':
         e.preventDefault();
-        void pageDown();
+        void pageDown(true);
         break;
       case 'ArrowUp':
-      case 'PageUp':
         e.preventDefault();
+        if (app.settings.keyScrollMode === 'continuous' && e.repeat) break;
         void pageUp();
         break;
+      case 'PageUp':
+        e.preventDefault();
+        void pageUp(true);
+        break;
       case 'Escape':
+        stopAnim();
+        stopHold();
         app.backToShelf();
         break;
     }
@@ -155,6 +297,11 @@
 
 <svelte:window
   onkeydown={onKeydown}
+  onkeyup={onKeyup}
+  onblur={() => {
+    stopAnim();
+    stopHold();
+  }}
   onpagehide={() => void app.flushProgress({ force: true, keepalive: true })}
 />
 

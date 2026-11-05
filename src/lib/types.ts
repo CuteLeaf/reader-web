@@ -69,4 +69,17 @@ export interface ReaderSettings {
   autoSave: boolean;
   /** 预加载后续章节数：0 关闭，只对局域网书籍生效 */
   prefetchCount: number;
+  /** ↑↓ 的滚动方式 */
+  keyScrollMode: KeyScrollMode;
+  /** 滚动速度倍率：0.5 ~ 3，1 为标准 */
+  scrollSpeed: number;
 }
+
+/**
+ * ↑↓ 键的滚动方式：
+ *  - page：一次一屏（原有行为）
+ *  - half：一次半屏
+ *  - line：一次一行，细读/校对用
+ *  - continuous：按住不放持续滚动，松开即停
+ */
+export type KeyScrollMode = 'page' | 'half' | 'line' | 'continuous';

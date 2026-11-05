@@ -3,11 +3,21 @@
   import { FONT_STACKS, THEMES } from '../lib/reader/theme';
   import { DEFAULT_SETTINGS } from '../lib/storage/settings';
   import { customFontStack, isCustomStack } from '../lib/reader/fonts';
+  import type { KeyScrollMode } from '../lib/types';
 
   const s = $derived(app.settings);
 
   /** 0 = 关闭；预取过多会持续占用后端连接 */
   const PREFETCH_OPTIONS = [0, 3, 5, 10];
+
+  const SCROLL_MODES: { value: KeyScrollMode; label: string; desc: string }[] = [
+    { value: 'page', label: '整屏', desc: '按一次滚动约一屏，带缓动动画（原有行为）。' },
+    { value: 'half', label: '半屏', desc: '按一次滚动半屏，翻页更细，不容易跳过内容。' },
+    { value: 'line', label: '逐行', desc: '按一次滚动一行，适合逐句细读或校对。' },
+    { value: 'continuous', label: '按住连滚', desc: '按住 ↑↓ 持续滚动，松开即停；速度可调。' },
+  ];
+
+  const formatSpeed = (v: number): string => v.toFixed(2).replace(/\.?0+$/, '');
 
   let fontInput = $state<HTMLInputElement | null>(null);
   let importing = $state(false);
@@ -124,7 +134,41 @@
           value={s.readWidth}
           oninput={(e) => app.updateSettings({ readWidth: +e.currentTarget.value })}
         />
-        <p class="hint">阅读时 ↑ ↓ 翻页（到底自动下一章），← → 换章，Esc 回书架。</p>
+        <p class="hint">← → 换章，Esc 回书架。</p>
+      </section>
+
+      <section class="row">
+        <div class="label"><span>↑ ↓ 滚动方式</span></div>
+        <div class="seg modes" role="group" aria-label="上下键滚动方式">
+          {#each SCROLL_MODES as m (m.value)}
+            <button
+              class:active={s.keyScrollMode === m.value}
+              title={m.desc}
+              aria-pressed={s.keyScrollMode === m.value}
+              onclick={() => app.updateSettings({ keyScrollMode: m.value })}
+            >
+              {m.label}
+            </button>
+          {/each}
+        </div>
+        <p class="hint">{SCROLL_MODES.find((m) => m.value === s.keyScrollMode)?.desc}</p>
+
+        <label class="label" for="ss">
+          滚动速度 <b>{formatSpeed(s.scrollSpeed)}×</b>
+        </label>
+        <input
+          id="ss"
+          type="range"
+          min="0.5"
+          max="3"
+          step="0.25"
+          value={s.scrollSpeed}
+          oninput={(e) => app.updateSettings({ scrollSpeed: +e.currentTarget.value })}
+        />
+        <p class="hint">
+          数值越大，翻页动画越快、按住滚动越快；PageUp / PageDown / 空格始终翻一整屏。 到底继续按 ↓
+          进入下一章，到顶按 ↑ 回到上一章末尾。
+        </p>
       </section>
 
       <section class="row">
@@ -427,6 +471,14 @@
     color: var(--accent);
     font-weight: 600;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+
+  .modes {
+    margin-bottom: 9px;
+  }
+
+  .modes button {
+    min-width: 62px;
   }
 
   .hint {
