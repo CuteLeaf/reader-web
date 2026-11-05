@@ -8,7 +8,8 @@
  *  3. scan()：受限并发（默认 32）+ 单点超时（默认 700ms），边扫边回调，UI 实时出结果
  *     quick 模式只探常见主机位（快但会漏），调用方应在无结果时自动升级为全段扫描
  *
- * 注意：页面为 HTTPS 时浏览器会拦掉所有 http:// 请求（混合内容），此时扫描必然全灭，需要 http 访问或反代。
+ * 注意：HTTPS 页面扫描私有网段不受混合内容限制（私有 IP 字面值在 LNA 规范里豁免），
+ * 但首次会触发「访问本地网络」权限提示，用户拒绝后扫描结果会为空。
  */
 import { describeError, probeEndpoint } from './legado';
 
@@ -178,12 +179,9 @@ export async function probeHost(
 const QUICK_HOSTS = [1, 2, 3, 100, 101, 102, 103, 104, 105, 106, 107, 110, 120, 150, 200, 254];
 
 export async function scan(opts: ScanOptions = {}): Promise<ScanCandidate[]> {
-  if (typeof location !== 'undefined' && location.protocol === 'https:') {
-    throw new Error(
-      '当前是 HTTPS 页面，浏览器禁止访问局域网 http 服务，扫描会被全部拦截。请用 http 打开本站，或给后端配置 HTTPS 反向代理。',
-    );
-  }
-
+  // HTTPS 页面扫描局域网不会被混合内容拦下：私有 IP 字面值在 LNA 规范里是豁免的，
+  // 改由浏览器弹「访问本地网络」权限（用户点「扫描」即视为授权手势）。
+  // 若用户此前拒绝过该权限，扫描结果会为空，需要在站点设置里重新允许。
   const target = opts.prefix ? parseTarget(opts.prefix) : null;
   if (opts.prefix && !target) {
     throw new Error(`网段格式不对：${opts.prefix}，应形如 192.168.1 或 192.168.1.23`);

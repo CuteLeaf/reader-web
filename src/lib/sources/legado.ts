@@ -9,7 +9,7 @@
  * 返回体有的版本直接给数组/字符串，这里统一做兼容拆包。
  */
 import type { Book, Chapter } from '../types';
-import { isLocalNetworkBlocked } from './net';
+import { isLocalHost, isLocalNetworkBlocked } from './net';
 
 export interface ProbeResult {
   base: string;
@@ -48,10 +48,22 @@ export function normalizeBase(input: string): string {
   }
 }
 
+/**
+ * 严格意义的混合内容：HTTPS 页面请求「公网」HTTP 地址。
+ *
+ * 私有 IP 字面值（192.168.x.x、10.x.x.x 等）与 .local 域名在 Chrome 的 Local Network
+ * Access 规范里免于混合内容检查，改由「访问本地网络」权限提示把关，因此不算混合内容。
+ * 若这里把它们一并拦掉，HTTPS 站点就永远连不上局域网后端了。
+ */
 function isMixedContent(base: string): boolean {
-  return (
-    typeof location !== 'undefined' && location.protocol === 'https:' && base.startsWith('http://')
-  );
+  if (typeof location === 'undefined' || location.protocol !== 'https:') return false;
+  if (!base.startsWith('http://')) return false;
+  try {
+    if (isLocalHost(new URL(base).hostname)) return false;
+  } catch {
+    /* 解析失败交给后续流程报错 */
+  }
+  return true;
 }
 
 async function rawFetch(
@@ -119,7 +131,7 @@ async function getJson<T>(
 export async function probeEndpoint(base: string, timeout = 3000): Promise<ProbeResult> {
   if (isMixedContent(base)) {
     throw new LegadoError(
-      '当前页面是 HTTPS，浏览器会拦截对局域网 HTTP 服务的请求；请改用 http 打开本站或使用反向代理',
+      '当前页面是 HTTPS，不能请求公网 HTTP 地址；请改用 HTTPS 后端或反向代理',
       'mixed-content',
     );
   }
@@ -249,7 +261,10 @@ export function uploadBook(
 ): Promise<void> {
   if (isMixedContent(base)) {
     return Promise.reject(
-      new LegadoError('当前页面是 HTTPS，浏览器会拦截对局域网 HTTP 服务的上传', 'mixed-content'),
+      new LegadoError(
+        '当前页面是 HTTPS，不能向公网 HTTP 地址上传；请改用 HTTPS 后端或反向代理',
+        'mixed-content',
+      ),
     );
   }
 

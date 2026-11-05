@@ -187,9 +187,8 @@
 
     <div class="modal-body">
       {#if isHttps}
-        <div class="notice warn">
-          当前页面是 <b>HTTPS</b>，浏览器会拦截对局域网 <code>http://</code> 服务的请求。请用
-          <code>http://</code> 地址打开本站，或为后端配置 HTTPS 反向代理。
+        <div class="notice">
+          当前是 <b>HTTPS</b> 页面：首次连接局域网设备时，Chrome 会询问「是否允许访问本地网络」，请选择允许。若之前拒绝过，可在地址栏左侧的站点设置里重新开启。
         </div>
       {/if}
 
