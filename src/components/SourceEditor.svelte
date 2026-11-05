@@ -145,11 +145,7 @@
   const close = () => (app.editorOpen = false);
 </script>
 
-<div
-  class="backdrop edit-backdrop"
-  onclick={(e) => e.target === e.currentTarget && close()}
-  role="presentation"
->
+<div class="backdrop edit-backdrop">
   <div class="modal" style:width="960px">
     <div class="modal-header">
       <div class="head">

@@ -173,7 +173,7 @@
   const close = () => (app.connectOpen = false);
 </script>
 
-<div class="backdrop" onclick={(e) => e.target === e.currentTarget && close()} role="presentation">
+<div class="backdrop">
   <div class="modal">
     <div class="modal-header">
       <div>

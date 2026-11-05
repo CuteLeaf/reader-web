@@ -237,7 +237,7 @@
   const accept = $derived(kind === 'book' ? '.json,.txt' : '.json,.txt');
 </script>
 
-<div class="backdrop" onclick={(e) => e.target === e.currentTarget && close()} role="presentation">
+<div class="backdrop">
   <div class="modal" style:width="900px">
     <div class="modal-header">
       <div>
