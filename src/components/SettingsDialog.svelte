@@ -37,17 +37,17 @@
   }
 </script>
 
-<div class="backdrop">
-  <div class="modal" style:width="560px">
-    <div class="modal-header">
+<div class="settings-layer" role="dialog" aria-label="阅读设置">
+  <aside class="panel">
+    <div class="panel-head">
       <div>
-        <div class="modal-title">阅读设置</div>
-        <div class="modal-desc">所有设置保存在本地浏览器，换设备不会同步。</div>
+        <div class="panel-title">阅读设置</div>
+        <div class="panel-desc">改动即时生效，可以对照正文实时预览。</div>
       </div>
-      <button class="btn ghost sm" onclick={close}>✕</button>
+      <button class="btn ghost sm" onclick={close} aria-label="关闭">✕</button>
     </div>
 
-    <div class="modal-body">
+    <div class="panel-body">
       <section>
         <span class="label">主题</span>
         <div class="themes">
@@ -254,16 +254,114 @@
       </section>
     </div>
 
-    <div class="modal-footer">
-      <button class="btn ghost" onclick={() => app.updateSettings({ ...DEFAULT_SETTINGS })}
-        >恢复默认</button
-      >
-      <button class="btn primary" onclick={close}>完成</button>
+    <div class="panel-foot">
+      <span class="panel-note">设置仅保存在本机</span>
+      <div class="foot-actions">
+        <button class="btn ghost" onclick={() => app.updateSettings({ ...DEFAULT_SETTINGS })}
+          >恢复默认</button
+        >
+        <button class="btn primary" onclick={close}>完成</button>
+      </div>
     </div>
-  </div>
+  </aside>
 </div>
 
 <style>
+  /* 右侧浮动面板：正文保持可见，改动可以即时对照 */
+  .settings-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    /* 面板以外不拦截点击，阅读页仍可正常滚动 */
+    pointer-events: none;
+  }
+
+  .panel {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: min(380px, calc(100vw - 24px));
+    display: flex;
+    flex-direction: column;
+    pointer-events: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .panel-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .panel-desc {
+    margin-top: 3px;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--sub);
+  }
+
+  .panel-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0 16px;
+  }
+
+  .panel-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px 12px;
+    border-top: 1px solid var(--line);
+  }
+
+  .panel-note {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--sub);
+  }
+
+  .foot-actions {
+    display: flex;
+    gap: 8px;
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  @media (max-width: 760px) {
+    /* 窄屏改为底部抽屉，上方正文仍可见 */
+    .panel {
+      top: auto;
+      left: 8px;
+      right: 8px;
+      bottom: 8px;
+      width: auto;
+      max-height: 62vh;
+    }
+
+    .panel-note {
+      display: none;
+    }
+  }
+
   section {
     padding: 12px 0;
     border-bottom: 1px solid var(--line);
