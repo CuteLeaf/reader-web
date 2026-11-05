@@ -108,8 +108,15 @@ class AppStore {
   /* ------------------------ 内部缓存 ------------------------ */
   private catalogCache = new Map<string, Chapter[]>();
   private contentCache = new Map<string, string[]>();
+  /** 同一章正在请求中的任务：预取和正常翻章撞上时共用一次请求 */
+  private contentInflight = new Map<string, Promise<string[]>>();
   private localTextCache = new Map<string, string>();
   private abort: AbortController | null = null;
+  /** 预取队列：按章节顺序取，翻到哪章先说哪章 */
+  private prefetchQueue: number[] = [];
+  private prefetching = false;
+  private prefetchBookId: string | null = null;
+  private prefetchCtrl: AbortController | null = null;
   /** 进度落盘/回传的防抖句柄 */
   private progressTimer: ReturnType<typeof setTimeout> | null = null;
   /** 上一次成功回传给后端的进度，用来避免重复请求 */
@@ -274,6 +281,8 @@ class AppStore {
     this.remoteBooks = [];
     this.catalogCache.clear();
     this.contentCache.clear();
+    this.contentInflight.clear();
+    this.resetPrefetch();
     this.toast('已断开局域网后端', 'info');
   }
 
@@ -287,6 +296,7 @@ class AppStore {
   async openBook(book: Book, opts: { skipHash?: boolean } = {}): Promise<void> {
     this.view = 'reader';
     this.current = book;
+    this.resetPrefetch();
     this.paragraphs = [];
     this.chapterTitle = book.title;
     this.chapterIndex = book.durChapterIndex ?? 0;
@@ -346,8 +356,12 @@ class AppStore {
     this.chapterTitle = chapter.title;
 
     try {
-      this.paragraphs = await this.readChapter(book, chapter, ctrl.signal);
+      const paragraphs = await this.readChapter(book, chapter, ctrl.signal);
+      // 慢请求可能在用户已经换章之后才回来，别把旧正文盖到新章上
+      if (ctrl.signal.aborted || this.abort !== ctrl) return;
+      this.paragraphs = paragraphs;
       this.scrollToken += 1;
+      this.schedulePrefetch(index);
       if (this.settings.autoSave) this.scheduleProgressSync(opts.keepPos ? 4000 : 1200);
       if (!opts.silent) {
         const updated = await patchBook(book.id, {
@@ -385,17 +399,99 @@ class AppStore {
     const key = `${book.id}#${chapter.index}`;
     const cached = this.contentCache.get(key);
     if (cached) return cached;
+    // 预取中的章节被翻到时直接等同一个请求，不重复发
+    const pending = this.contentInflight.get(key);
+    if (pending) return pending;
     if (!this.endpoint || !book.bookUrl) throw new Error('后端未连接');
-    const paragraphs = await fetchChapterContent(
-      this.endpoint,
-      book.bookUrl,
-      chapter.index,
-      chapter.title,
-      signal,
-    );
-    if (this.contentCache.size > 40) this.contentCache.clear();
-    this.contentCache.set(key, paragraphs);
-    return paragraphs;
+    const base = this.endpoint;
+    const bookUrl = book.bookUrl;
+
+    const task = (async (): Promise<string[]> => {
+      try {
+        const paragraphs = await fetchChapterContent(
+          base,
+          bookUrl,
+          chapter.index,
+          chapter.title,
+          signal,
+        );
+        // 缓存上限只是防止长时间阅读把内存撑爆，命中率比容量更重要
+        if (this.contentCache.size > 60) this.contentCache.clear();
+        this.contentCache.set(key, paragraphs);
+        return paragraphs;
+      } finally {
+        this.contentInflight.delete(key);
+      }
+    })();
+    this.contentInflight.set(key, task);
+    return task;
+  }
+
+  /* ========================= 预加载 ========================= */
+
+  /**
+   * 预取后续章节：只排当前章之后的 N 章，顺序拉取。
+   * 本地书正文是一次性读进内存再切片，没有网络开销，不需要预取。
+   */
+  private schedulePrefetch(from: number): void {
+    const book = this.current;
+    if (!book || book.source !== 'legado' || this.settings.prefetchCount <= 0) {
+      this.prefetchQueue = [];
+      return;
+    }
+    if (this.prefetchBookId !== book.id) {
+      this.prefetchCtrl?.abort();
+      this.prefetchCtrl = new AbortController();
+      this.prefetchBookId = book.id;
+    }
+    if (this.prefetchCtrl?.signal.aborted) {
+      this.prefetchCtrl = new AbortController();
+    }
+
+    const targets: number[] = [];
+    for (let i = 1; i <= this.settings.prefetchCount; i += 1) {
+      const index = from + i;
+      if (index >= this.chapters.length) break;
+      if (this.contentCache.has(`${book.id}#${index}`)) continue;
+      targets.push(index);
+    }
+    this.prefetchQueue = targets;
+    if (targets.length) void this.runPrefetch();
+  }
+
+  /** 单线程队列：后端多为单机服务，并发拉五章反而把当前章的带宽挤掉 */
+  private async runPrefetch(): Promise<void> {
+    if (this.prefetching) return;
+    this.prefetching = true;
+    try {
+      while (this.prefetchQueue.length) {
+        const book = this.current;
+        const index = this.prefetchQueue.shift();
+        if (index === undefined) break;
+        if (!book || book.source !== 'legado' || book.id !== this.prefetchBookId) break;
+        const ctrl = this.prefetchCtrl;
+        if (!ctrl || ctrl.signal.aborted) break;
+        if (index === this.chapterIndex) continue;
+        const chapter = this.chapters[index];
+        if (!chapter || this.contentCache.has(`${book.id}#${index}`)) continue;
+        try {
+          await this.readChapter(book, chapter, ctrl.signal);
+        } catch {
+          // 预取失败不打扰用户，翻到该章时仍会走正常加载并给出错误提示
+        }
+        // 让出一点时间给当前章的排版与滚动
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    } finally {
+      this.prefetching = false;
+    }
+  }
+
+  private resetPrefetch(): void {
+    this.prefetchQueue = [];
+    this.prefetchBookId = null;
+    this.prefetchCtrl?.abort();
+    this.prefetchCtrl = null;
   }
 
   /**
@@ -569,6 +665,7 @@ class AppStore {
   backToShelf(): void {
     // 先取一次快照再清状态，避免最后几页的进度丢掉
     void this.flushProgress({ force: true, keepalive: true });
+    this.resetPrefetch();
     this.abort?.abort();
     this.view = 'shelf';
     this.current = null;

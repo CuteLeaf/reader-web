@@ -1,8 +1,9 @@
 /**
  * 「Legado 3.0」Web 后端模拟器（仅用于开发自测）。
  *
- *   node scripts/mock-legado.mjs [--port 1122]
+ *   node scripts/mock-legado.mjs [--port 1122] [--delay 300]
  *
+ * `--delay` 给正文接口加固定延迟（毫秒），用来观察预加载、加载态等真实网络下的表现。
  * 接口与真实后端一致，并且带 CORS 头，方便本地验证「扫描 → 连接 → 阅读」全链路。
  */
 import { createServer } from 'node:http';
@@ -10,6 +11,9 @@ import { createServer } from 'node:http';
 const args = process.argv.slice(2);
 const portArg = args.indexOf('--port');
 const PORT = portArg > -1 ? Number(args[portArg + 1]) : 1122;
+const delayArg = args.indexOf('--delay');
+const DELAY = delayArg > -1 ? Number(args[delayArg + 1]) : 0;
+const STARTED = Date.now();
 
 const CATALOG = [
   { title: '楔子 · 一段无关紧要的开场', paragraphs: 5 },
@@ -195,7 +199,11 @@ const server = createServer((req, res) => {
     const index = Number(url.searchParams.get('index') ?? 0);
     const chapter = chapters[index] ?? chapters[0];
     const count = CATALOG[index]?.paragraphs ?? 5;
-    json(res, { data: content(chapter.title, count) });
+    // 打一行到达日志，便于观察预加载是不是按顺序、串行地拉章节
+    console.log(`[mock] getBookContent index=${index} +${Date.now() - STARTED}ms`);
+    const reply = () => json(res, { data: content(chapter.title, count) });
+    if (DELAY > 0) setTimeout(reply, DELAY);
+    else reply();
     return;
   }
 

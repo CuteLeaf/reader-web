@@ -67,4 +67,6 @@ export interface ReaderSettings {
   readWidth: number;
   /** 翻章后是否记住进度 */
   autoSave: boolean;
+  /** 预加载后续章节数：0 关闭，只对局域网书籍生效 */
+  prefetchCount: number;
 }

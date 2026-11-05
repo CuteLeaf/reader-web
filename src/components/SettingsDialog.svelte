@@ -6,6 +6,9 @@
 
   const s = $derived(app.settings);
 
+  /** 0 = 关闭；预取过多会持续占用后端连接 */
+  const PREFETCH_OPTIONS = [0, 3, 5, 10];
+
   let fontInput = $state<HTMLInputElement | null>(null);
   let importing = $state(false);
 
@@ -171,6 +174,23 @@
           {/each}
         </div>
         <p class="hint">支持 ttf / otf / woff / woff2；字体文件只保存在本机浏览器，不会上传。</p>
+      </section>
+
+      <section class="row inline">
+        <div>
+          <div class="label">预加载后续章节</div>
+          <p class="hint">读完当前章前先取下一批正文，翻章几乎不用等；只对局域网书籍生效。</p>
+        </div>
+        <div class="seg" role="group" aria-label="预加载章节数">
+          {#each PREFETCH_OPTIONS as n (n)}
+            <button
+              class:active={s.prefetchCount === n}
+              onclick={() => app.updateSettings({ prefetchCount: n })}
+            >
+              {n === 0 ? '关闭' : `${n} 章`}
+            </button>
+          {/each}
+        </div>
       </section>
 
       <section class="row inline">
@@ -371,6 +391,42 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .row.inline > div:first-child {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+
+  .seg {
+    flex: 0 0 auto;
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 9px;
+    background: var(--line);
+  }
+
+  .seg button {
+    padding: 5px 9px;
+    border-radius: 7px;
+    font-size: 11.5px;
+    color: var(--sub);
+    transition:
+      background 0.14s ease,
+      color 0.14s ease;
+  }
+
+  .seg button:hover {
+    color: var(--ink-soft);
+  }
+
+  .seg button.active {
+    background: var(--panel);
+    color: var(--accent);
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   }
 
   .hint {

@@ -17,9 +17,6 @@ Reader-Web 是一款免费的 Web 平台小说阅读器
 
 [HapeLee/legado-with-MD3](https://github.com/HapeLee/legado-with-MD3)
 
-连接后端后，滚动与翻章会把阅读进度写回 `/saveBookProgress`（章节 + 章节内字符偏移），
-手机端书架、阅读位置随之更新；重新连上时会从上次读到的位置续读。
-
 ---
 
 ## 2. 部署
