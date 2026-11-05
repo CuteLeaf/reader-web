@@ -16,6 +16,8 @@ export interface Book {
   latestChapterTitle?: string;
   durChapterTitle?: string;
   durChapterIndex: number;
+  /** 章节内字符偏移，用于「同步进度」时续读到原位置 */
+  durChapterPos?: number;
   durChapterTime?: number;
 
   /* ---- 仅本地书籍 ---- */

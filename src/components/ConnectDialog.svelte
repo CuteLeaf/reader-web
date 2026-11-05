@@ -545,19 +545,12 @@
     border: 1px solid var(--line);
   }
 
-  .notice.warn {
-    background: #fdf6e7;
-    border-color: #f0dfb8;
-    color: #8a6a26;
-  }
-
   .notice.error {
     background: #fdecea;
     border-color: #f5c6c0;
     color: #a33325;
   }
 
-  .notice code,
   .empty-diagnosis code {
     font-size: 11px;
     padding: 1px 4px;

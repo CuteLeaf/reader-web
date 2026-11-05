@@ -31,6 +31,7 @@ import {
   fetchChapterContent,
   fetchChapters,
   probeEndpoint,
+  saveBookProgress,
 } from '../lib/sources/legado';
 import {
   deleteRemoteBook,
@@ -76,6 +77,8 @@ class AppStore {
   chapterTitle = $state('');
   contentLoading = $state(false);
   scrollToken = $state(0);
+  /** 本章已读到的字符偏移，语义与后端 durChapterPos 一致 */
+  chapterPos = $state(0);
 
   /* --------------------------- UI --------------------------- */
   settings = $state<ReaderSettings>({ ...DEFAULT_SETTINGS });
@@ -107,6 +110,14 @@ class AppStore {
   private contentCache = new Map<string, string[]>();
   private localTextCache = new Map<string, string>();
   private abort: AbortController | null = null;
+  /** 进度落盘/回传的防抖句柄 */
+  private progressTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 上一次成功回传给后端的进度，用来避免重复请求 */
+  private lastPushed = { index: -1, pos: -1 };
+  /** 打开书时待恢复的章节内偏移，交给阅读页消费一次 */
+  private pendingRestorePos = 0;
+  /** 同一会话里同步失败的提示只弹一次 */
+  private progressWarned = false;
 
   get allBooks(): Book[] {
     const list = [...this.remoteBooks, ...this.localBooks];
@@ -279,6 +290,9 @@ class AppStore {
     this.paragraphs = [];
     this.chapterTitle = book.title;
     this.chapterIndex = book.durChapterIndex ?? 0;
+    this.chapterPos = book.durChapterPos ?? 0;
+    this.pendingRestorePos = this.chapterPos;
+    this.lastPushed = { index: -1, pos: -1 };
     this.contentLoading = true;
     if (!opts.skipHash) history.replaceState(null, '', `#/read/${encodeURIComponent(book.id)}`);
 
@@ -289,7 +303,7 @@ class AppStore {
         Math.max(book.durChapterIndex ?? 0, 0),
         Math.max(chapters.length - 1, 0),
       );
-      await this.loadChapter(idx, { silent: true });
+      await this.loadChapter(idx, { silent: true, keepPos: true });
     } catch (e) {
       this.contentLoading = false;
       this.toast((e as Error).message || '加载目录失败', 'error');
@@ -311,7 +325,10 @@ class AppStore {
     return chapters;
   }
 
-  async loadChapter(index: number, opts: { silent?: boolean } = {}): Promise<void> {
+  async loadChapter(
+    index: number,
+    opts: { silent?: boolean; keepPos?: boolean } = {},
+  ): Promise<void> {
     const book = this.current;
     if (!book || index < 0 || index >= this.chapters.length) return;
     this.abort?.abort();
@@ -319,6 +336,11 @@ class AppStore {
     const ctrl = this.abort;
 
     this.chapterIndex = index;
+    // 换章默认从章首算起；打开书那一趟保留后端给的章节内位置
+    if (!opts.keepPos) {
+      this.chapterPos = 0;
+      this.pendingRestorePos = 0;
+    }
     this.contentLoading = true;
     const chapter = this.chapters[index];
     this.chapterTitle = chapter.title;
@@ -326,7 +348,7 @@ class AppStore {
     try {
       this.paragraphs = await this.readChapter(book, chapter, ctrl.signal);
       this.scrollToken += 1;
-      if (this.settings.autoSave) void this.saveProgress(index);
+      if (this.settings.autoSave) this.scheduleProgressSync(opts.keepPos ? 4000 : 1200);
       if (!opts.silent) {
         const updated = await patchBook(book.id, {
           durChapterIndex: index,
@@ -431,14 +453,122 @@ class AppStore {
     await this.loadChapter(index);
   }
 
-  private async saveProgress(index: number): Promise<void> {
+  /** 阅读页滚动时上报本章内的字符偏移（节流由调用方负责） */
+  reportProgress(pos: number): void {
+    if (!Number.isFinite(pos) || pos < 0) return;
+    const next = Math.round(pos);
+    if (next === this.chapterPos) return;
+    this.chapterPos = next;
+    if (this.settings.autoSave) this.scheduleProgressSync();
+  }
+
+  /** 取走打开书时待恢复的章节内偏移，只消费一次 */
+  takeRestorePos(): number {
+    const pos = this.pendingRestorePos;
+    this.pendingRestorePos = 0;
+    return pos;
+  }
+
+  /** 滚动过程中不要每次都发请求：合并成一次落盘 */
+  private scheduleProgressSync(delay = 2000): void {
+    if (this.progressTimer) clearTimeout(this.progressTimer);
+    this.progressTimer = setTimeout(() => {
+      this.progressTimer = null;
+      void this.flushProgress();
+    }, delay);
+  }
+
+  /**
+   * 立刻落一次进度：
+   *  - 所有书写本地 IndexedDB（刷新后能续读）
+   *  - 远端书额外 POST /saveBookProgress 回手机端（手机书架、阅读界面跟着更新）
+   */
+  async flushProgress(opts: { force?: boolean; keepalive?: boolean } = {}): Promise<void> {
+    if (this.progressTimer) {
+      clearTimeout(this.progressTimer);
+      this.progressTimer = null;
+    }
     const book = this.current;
     if (!book) return;
-    const chapter = this.chapters[index];
-    await kvSet(`progress:${book.id}`, { index, title: chapter?.title ?? '', time: Date.now() });
+
+    const index = this.chapterIndex;
+    const pos = Math.max(0, Math.round(this.chapterPos));
+    const title = this.chapters[index]?.title ?? this.chapterTitle;
+    const time = Date.now();
+
+    try {
+      await kvSet(`progress:${book.id}`, { index, title, time });
+    } catch {
+      /* 本地写失败不影响回传后端 */
+    }
+
+    if (book.source !== 'legado' || !this.endpoint || !book.bookUrl) return;
+    const last = this.lastPushed;
+    if (!opts.force && last.index === index && Math.abs(pos - last.pos) < 40) return;
+    this.lastPushed = { index, pos };
+
+    // 后端用 name + author 精确匹配书籍，必须用远端原始字段（本地标题可能被 trim 过）
+    const raw = book.raw ?? {};
+    const name = typeof raw.name === 'string' ? raw.name : book.title;
+    const author = typeof raw.author === 'string' ? raw.author : (book.author ?? '');
+    // 只有后端明确要求令牌时才带头：MD3 的 CORS 只放行 content-type
+    const token = this.sourceTokenRequired === true ? this.sourceToken || undefined : undefined;
+
+    try {
+      await saveBookProgress(
+        this.endpoint,
+        {
+          name,
+          author,
+          bookUrl: book.bookUrl,
+          durChapterIndex: index,
+          durChapterPos: pos,
+          durChapterTime: time,
+          durChapterTitle: title,
+        },
+        token,
+        { keepalive: opts.keepalive },
+      );
+      this.applyProgress(book.id, index, pos, title, time);
+    } catch (e) {
+      // 阅读中弹错误太吵：同一会话只提示一次，其余留在控制台
+      console.warn('[reader] 同步阅读进度失败', e);
+      if (!this.progressWarned) {
+        this.progressWarned = true;
+        this.toast(`阅读进度未能同步到手机：${(e as Error).message}`, 'error');
+      }
+      this.lastPushed = { index: -1, pos: -1 };
+    }
+  }
+
+  /** 回写成功后同步内存里的书架条目，返回书架即可看到新的「读至」 */
+  private applyProgress(id: string, index: number, pos: number, title: string, time: number): void {
+    this.remoteBooks = this.remoteBooks.map((b) =>
+      b.id === id
+        ? {
+            ...b,
+            durChapterIndex: index,
+            durChapterPos: pos,
+            durChapterTitle: title,
+            durChapterTime: time,
+          }
+        : b,
+    );
+    const cur = this.current;
+    if (cur?.id === id) {
+      this.current = {
+        ...cur,
+        durChapterIndex: index,
+        durChapterPos: pos,
+        durChapterTitle: title,
+        durChapterTime: time,
+      };
+    }
   }
 
   backToShelf(): void {
+    // 先取一次快照再清状态，避免最后几页的进度丢掉
+    void this.flushProgress({ force: true, keepalive: true });
     this.abort?.abort();
     this.view = 'shelf';
     this.current = null;

@@ -176,7 +176,7 @@
       <section class="row inline">
         <div>
           <div class="label">自动记录进度</div>
-          <p class="hint">翻章后自动保存到本地，下次打开续读。</p>
+          <p class="hint">滚动与翻章后自动保存，局域网书籍还会把进度同步回手机。</p>
         </div>
         <button
           class="switch"

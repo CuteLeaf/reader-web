@@ -157,6 +157,7 @@ interface LegadoBook {
   coverUrl?: string;
   durChapterTitle?: string;
   durChapterIndex?: number;
+  durChapterPos?: number;
   durChapterTime?: number;
   latestChapterTitle?: string;
   totalChapterNum?: number;
@@ -177,6 +178,7 @@ export async function fetchBookshelf(base: string, signal?: AbortSignal): Promis
       coverUrl: b.coverUrl || undefined,
       durChapterTitle: b.durChapterTitle,
       durChapterIndex: Number.isFinite(b.durChapterIndex) ? Number(b.durChapterIndex) : 0,
+      durChapterPos: Number.isFinite(b.durChapterPos) ? Number(b.durChapterPos) : 0,
       durChapterTime: b.durChapterTime,
       latestChapterTitle: b.latestChapterTitle,
       totalChapterNum: b.totalChapterNum,
@@ -247,6 +249,92 @@ export async function fetchChapterContent(
     }
   }
   throw lastError;
+}
+
+export interface RemoteBookProgress {
+  name: string;
+  author: string;
+  /** 后端支持用 url 精确定位书籍，避免同名书串位 */
+  bookUrl?: string;
+  durChapterIndex: number;
+  /** 章节内字符偏移 */
+  durChapterPos: number;
+  durChapterTime: number;
+  durChapterTitle?: string;
+}
+
+/**
+ * 把阅读进度写回「Legado 3.0」后端：
+ *   POST /saveBookProgress  { name, author, url?, durChapterIndex, durChapterPos, durChapterTime, durChapterTitle }
+ *
+ * 后端按 name + author（给了 url 时先按 url 找）定位到同一本书再更新，
+ * 两边书名/作者不完全一致会直接返回「格式不对」，所以调用方要传后端原始字段而不是清洗过的标题。
+ */
+export async function saveBookProgress(
+  base: string,
+  progress: RemoteBookProgress,
+  token?: string,
+  opts: { keepalive?: boolean; timeout?: number } = {},
+): Promise<void> {
+  if (isMixedContent(base)) {
+    throw new LegadoError(
+      '当前页面是 HTTPS，不能请求公网 HTTP 地址；请改用 HTTPS 后端或反向代理',
+      'mixed-content',
+    );
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeout ?? 8000);
+  const url = `${base}/saveBookProgress`;
+  const body = JSON.stringify({
+    name: progress.name,
+    author: progress.author,
+    url: progress.bookUrl,
+    durChapterIndex: progress.durChapterIndex,
+    durChapterPos: progress.durChapterPos,
+    durChapterTime: progress.durChapterTime,
+    durChapterTitle: progress.durChapterTitle ?? '',
+  });
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+      keepalive: opts.keepalive,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'x-legado-token': token } : {}),
+      },
+      body,
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw new LegadoError('同步进度超时', 'network');
+    if (isLocalNetworkBlocked(url)) {
+      throw new LegadoError(
+        '浏览器限制：HTTP 页面不能访问局域网设备，请启用 HTTPS 或改用局域网地址打开本站',
+        'lna',
+      );
+    }
+    throw new LegadoError('网络不可达或被 CORS 拦截', 'cors');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const text = await res.text();
+  let payload: { isSuccess?: boolean; errorMsg?: string } | null = null;
+  try {
+    payload = JSON.parse(text) as { isSuccess?: boolean; errorMsg?: string };
+  } catch {
+    /* 部分版本成功时直接返回空响应体 */
+  }
+  if (!res.ok) throw new LegadoError(`服务返回 ${res.status}`, 'http');
+  if (payload?.isSuccess === false || (payload?.errorMsg && payload.errorMsg.length > 0)) {
+    throw new LegadoError(payload.errorMsg || '后端拒绝了进度更新', 'http');
+  }
 }
 
 /**

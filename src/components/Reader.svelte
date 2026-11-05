@@ -19,9 +19,61 @@
     if (app.contentLoading) return;
     const el = scroller;
     if (!el) return;
-    el.scrollTop = pendingAnchor === 'bottom' ? el.scrollHeight : 0;
-    pendingAnchor = 'top';
+    if (pendingAnchor === 'bottom') {
+      el.scrollTop = el.scrollHeight;
+      pendingAnchor = 'top';
+      return;
+    }
+    // 和手机端同步过进度时，回到上次读到的位置
+    const restore = app.takeRestorePos();
+    if (restore > 0) {
+      scrollToCharOffset(el, restore);
+      return;
+    }
+    el.scrollTop = 0;
   });
+
+  /** 把滚动位置换算成「本章内已读字符数」，与后端 durChapterPos 同义 */
+  function charOffsetAt(el: HTMLDivElement): number {
+    const content = el.querySelector('.content');
+    if (!content) return 0;
+    const lineTop = el.getBoundingClientRect().top + 4;
+    let offset = 0;
+    for (const p of content.querySelectorAll('p')) {
+      if (p.getBoundingClientRect().bottom > lineTop) return offset;
+      offset += p.textContent?.length ?? 0;
+    }
+    return offset;
+  }
+
+  /** 按字符偏移滚到对应段落，用于恢复上次的阅读位置 */
+  function scrollToCharOffset(el: HTMLDivElement, pos: number): void {
+    const content = el.querySelector('.content');
+    if (!content) return;
+    let offset = 0;
+    for (const p of content.querySelectorAll('p')) {
+      offset += p.textContent?.length ?? 0;
+      if (offset >= pos) {
+        const delta = p.getBoundingClientRect().top - el.getBoundingClientRect().top;
+        el.scrollTop += delta - 8;
+        return;
+      }
+    }
+    el.scrollTop = el.scrollHeight;
+  }
+
+  let scrollRaf = 0;
+
+  /** 滚动只上报位置，落盘与回传由 store 做防抖 */
+  function onScroll(): void {
+    if (scrollRaf) return;
+    scrollRaf = requestAnimationFrame(() => {
+      scrollRaf = 0;
+      const el = scroller;
+      if (!el || app.contentLoading) return;
+      app.reportProgress(charOffsetAt(el));
+    });
+  }
 
   const PAGE_RATIO = 0.88;
 
@@ -101,7 +153,10 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window
+  onkeydown={onKeydown}
+  onpagehide={() => void app.flushProgress({ force: true, keepalive: true })}
+/>
 
 <div
   class="reader"
@@ -172,7 +227,7 @@
     </button>
   </nav>
 
-  <div class="scroller" bind:this={scroller}>
+  <div class="scroller" bind:this={scroller} onscroll={onScroll}>
     <article
       class="paper"
       class:loading={app.contentLoading}
