@@ -217,11 +217,27 @@ export async function kvDel(key: string): Promise<void> {
   await txDone(tx);
 }
 
-/** 估算已用空间（部分浏览器不支持，返回 undefined） */
+/**
+ * 估算已用空间。
+ *
+ * navigator.storage 只在安全上下文（HTTPS / localhost）存在，
+ * 用 HTTP 域名部署时拿不到 estimate()，侧栏就只剩「本地存储」四个字。
+ * 这时退回按本地书籍文件大小 + 字体大小求和，给一个够用的近似值。
+ */
 export async function storageEstimate(): Promise<{ usage: number; quota: number } | undefined> {
-  if (!navigator.storage?.estimate) return undefined;
-  const { usage = 0, quota = 0 } = await navigator.storage.estimate();
-  return { usage, quota };
+  try {
+    if (navigator.storage?.estimate) {
+      const { usage = 0, quota = 0 } = await navigator.storage.estimate();
+      return { usage, quota };
+    }
+    const [books, fonts] = await Promise.all([listBooks(), listFonts()]);
+    const usage =
+      books.reduce((sum, b) => sum + (b.size ?? 0), 0) + fonts.reduce((sum, f) => sum + f.size, 0);
+    // quota 无法得知，置 0：目前只有侧栏用到 usage
+    return { usage, quota: 0 };
+  } catch {
+    return undefined;
+  }
 }
 
 /* ----------------------------- fonts ---------------------------- */

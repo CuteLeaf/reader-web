@@ -9,6 +9,7 @@
  * 返回体有的版本直接给数组/字符串，这里统一做兼容拆包。
  */
 import type { Book, Chapter } from '../types';
+import { isLocalNetworkBlocked } from './net';
 
 export interface ProbeResult {
   base: string;
@@ -20,7 +21,7 @@ export interface ProbeResult {
 export class LegadoError extends Error {
   constructor(
     message: string,
-    readonly kind: 'network' | 'cors' | 'http' | 'parse' | 'mixed-content' | 'auth',
+    readonly kind: 'network' | 'cors' | 'http' | 'parse' | 'mixed-content' | 'auth' | 'lna',
   ) {
     super(message);
     this.name = 'LegadoError';
@@ -72,6 +73,14 @@ async function rawFetch(
     });
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw new LegadoError('请求超时', 'network');
+    // HTTP 公网页面访问局域网设备时，Chrome 会在发起请求前就拒绝（LNA 权限只给安全上下文），
+    // 报错同样是 TypeError；这种情况和 CORS 无关，必须给出不同的提示。
+    if (isLocalNetworkBlocked(url)) {
+      throw new LegadoError(
+        '浏览器限制：HTTP 页面不能访问局域网设备，请启用 HTTPS 或改用局域网地址打开本站',
+        'lna',
+      );
+    }
     // fetch 因 CORS 失败时统一抛 TypeError，浏览器不暴露具体原因
     throw new LegadoError('网络不可达或被 CORS 拦截', 'cors');
   } finally {
@@ -298,6 +307,8 @@ export function describeError(e: unknown): string {
     switch (e.kind) {
       case 'cors':
         return '连不上：可能地址/端口不对、手机端服务未开启，或后端未放开 CORS';
+      case 'lna':
+        return 'Chrome 已拦截：HTTP 页面不能访问局域网设备。给本站启用 HTTPS（首次连接时允许「访问本地网络」），或用局域网地址打开本站';
       case 'mixed-content':
         return e.message;
       case 'network':

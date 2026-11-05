@@ -9,6 +9,7 @@
     type ScanCandidate,
   } from '../lib/sources/scan';
   import { normalizeBase } from '../lib/sources/legado';
+  import { pageCannotUseLocalNetwork } from '../lib/sources/net';
 
   let prefix = $state('');
   let portsText = $state('1122');
@@ -22,6 +23,10 @@
   let ctrl: AbortController | null = null;
 
   const isHttps = typeof location !== 'undefined' && location.protocol === 'https:';
+  /** HTTP 公网页面：浏览器不允许访问本地网络（LNA 权限只在安全上下文可用） */
+  const lnaBlocked = pageCannotUseLocalNetwork();
+  const LNA_HINT =
+    '当前是 HTTP 公网页面，Chrome 会直接拒绝访问局域网设备（本地网络访问权限只在 HTTPS 下可用）。请改用 HTTPS 打开，或用局域网地址访问本站。';
   const pct = $derived(progress.total ? Math.round((progress.done / progress.total) * 100) : 0);
   const target = $derived(parseTarget(prefix));
   const isSingleHost = $derived(target?.kind === 'host');
@@ -83,6 +88,10 @@
       scanning = false;
       return;
     }
+    if (lnaBlocked) {
+      scanError = LNA_HINT;
+      return;
+    }
     candidates = [];
     scanError = '';
     progress = { done: 0, total: 0 };
@@ -110,6 +119,10 @@
   /** 兜底：把常见网段一次扫掉（初始就全量探测，约 20–30 秒） */
   async function scanWide() {
     if (scanning) return;
+    if (lnaBlocked) {
+      scanError = LNA_HINT;
+      return;
+    }
     candidates = [];
     scanError = '';
     progress = { done: 0, total: 0 };
@@ -341,6 +354,15 @@
           >
           <span class="muted"
             >能显示 JSON = 网络通、问题在跨域；打不开 = 服务没开或地址/端口不对</span
+          >
+        </p>
+      {/if}
+
+      {#if lnaBlocked}
+        <p class="test-link">
+          <span class="muted"
+            >当前是 HTTP 页面：Chrome 的「本地网络访问」权限只在 HTTPS 下可用，会直接拒绝访问
+            192.168.x.x 这类局域网地址。启用 HTTPS，或改用局域网地址打开本站，才能连接。</span
           >
         </p>
       {/if}
