@@ -1,9 +1,29 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { app } from '../stores/app.svelte';
   import { themeById } from '../lib/reader/theme';
   import CatalogDrawer from './CatalogDrawer.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
+
+  /** 站点默认标题，离开阅读页时还原 */
+  const SITE_TITLE = '阅读 · 电子书 Web 阅读器';
+
+  /**
+   * 标签页标题跟着当前章节走：章节名在前、书名在后，方便在多个标签间辨认。
+   * 用 onMount 记录进入阅读页前的标题，组件销毁时恢复。
+   */
+  onMount(() => {
+    const original = document.title;
+    return () => {
+      document.title = original;
+    };
+  });
+
+  $effect(() => {
+    const chapter = app.chapterTitle?.trim() ?? '';
+    const book = app.current?.title?.trim() ?? '';
+    document.title = chapter && book ? `${chapter} · ${book}` : book || chapter || SITE_TITLE;
+  });
 
   let scroller = $state<HTMLDivElement | null>(null);
   // 换章后停在哪：上一章往回翻时停在底部，否则回到顶部
