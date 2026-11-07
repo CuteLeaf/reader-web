@@ -252,6 +252,24 @@
           <i></i>
         </button>
       </section>
+
+      <section class="row inline">
+        <div>
+          <div class="label">摸鱼模式</div>
+          <p class="hint">
+            鼠标移出页面时用一份工作文档盖住正文，移回立即恢复；不刷新页面，阅读进度与位置都不变。
+          </p>
+        </div>
+        <button
+          class="switch"
+          class:on={s.stealthMode}
+          onclick={() => app.updateSettings({ stealthMode: !s.stealthMode })}
+          aria-pressed={s.stealthMode}
+          aria-label="摸鱼模式"
+        >
+          <i></i>
+        </button>
+      </section>
     </div>
 
     <div class="panel-foot">

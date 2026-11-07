@@ -73,6 +73,8 @@ export interface ReaderSettings {
   keyScrollMode: KeyScrollMode;
   /** 滚动速度倍率：0.5 ~ 3，1 为标准 */
   scrollSpeed: number;
+  /** 摸鱼模式：鼠标移出页面时用伪装页盖住正文，移回立即恢复 */
+  stealthMode: boolean;
 }
 
 /**
