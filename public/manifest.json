@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "reader-web",
+  "name": "__MSG_extName__",
+  "default_locale": "zh_CN",
   "version": "1.0.2",
-  "description": "电子书阅读器，在浏览器侧边栏导入 TXT / EPUB 文件本地离线阅读，或发现局域网内的「Legado 3.0」后端服务，直接在浏览器中阅读。",
+  "description": "__MSG_extDescription__",
   "minimum_chrome_version": "116",
   "side_panel": {
     "default_path": "index.html"
   },
   "action": {
-    "default_title": "打开阅读侧栏"
+    "default_title": "__MSG_actionTitle__"
   },
   "background": {
     "service_worker": "background.js"
@@ -27,7 +28,7 @@
         "default": "Ctrl+Shift+H",
         "mac": "Command+Shift+H"
       },
-      "description": "切换摸鱼模式"
+      "description": "__MSG_cmdToggleStealth__"
     }
   }
 }
