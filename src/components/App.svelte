@@ -13,7 +13,10 @@
     document.getElementById('boot')?.remove();
     void app.init();
 
-    if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+    // 浏览器扩展里不注册 Service Worker：扩展页面有自己的更新与缓存机制，
+    // 且 chrome-extension:// 下注册会直接失败
+    const isExtension = location.protocol === 'chrome-extension:';
+    if (import.meta.env.PROD && !isExtension && 'serviceWorker' in navigator) {
       const base = import.meta.env.BASE_URL;
       navigator.serviceWorker.register(`${base}sw.js`, { scope: base }).catch(() => {
         /* 离线缓存失败不影响主流程 */

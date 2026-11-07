@@ -73,6 +73,8 @@
     position: relative;
     display: flex;
     gap: 14px;
+    /* 允许在窄容器里收缩：否则封面 + nowrap 文案的 min-content 会把卡片撑宽 */
+    min-width: 0;
     padding: 14px;
     border-radius: 14px;
     background: var(--panel);

@@ -8,7 +8,7 @@
   /** 站点默认标题，离开阅读页时还原 */
   const SITE_TITLE = '阅读 · 电子书 Web 阅读器';
   /** 摸鱼模式下伪装成一份 Word 文档 */
-  const FAKE_TITLE = '工作安排.docx - Word';
+  const FAKE_TITLE = 'DeepSeek - 探索未至之境';
 
   /**
    * 摸鱼模式：鼠标移出页面（或窗口失焦）时立刻盖上伪装页，
@@ -17,27 +17,15 @@
   let stealth = $state(false);
   const stealthVisible = $derived(app.settings.stealthMode && stealth);
 
-  /** 伪装文档里的日期取浏览器当天；每分钟刷新一次，跨零点也不会停在昨天 */
-  let clock = $state(Date.now());
-  const todayText = $derived.by(() => {
-    const d = new Date(clock);
-    return `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日`;
-  });
-  /** 从当天起的五天，作为「工作安排」的时间范围（避免周末看到已经过去的一周） */
-  const rangeText = $derived.by(() => {
-    const start = new Date(clock);
-    // 直接用时间戳偏移，避免对 Date 实例做可变操作
-    const end = new Date(clock + 4 * 86_400_000);
-    const fmt = (x: Date) => `${x.getMonth() + 1} 月 ${x.getDate()} 日`;
-    return `${fmt(start)} — ${fmt(end)}`;
-  });
+  /**
+   * 侧栏与网页用同一套指针判定（离开就伪装、移回就恢复）；
+   * 扩展环境额外支持全局快捷键 Ctrl/Cmd+Shift+H。
+   */
+  const isExtension = typeof location !== 'undefined' && location.protocol === 'chrome-extension:';
 
   onMount(() => {
     const original = document.title;
     const root = document.documentElement;
-    const clockTimer = setInterval(() => {
-      clock = Date.now();
-    }, 60_000);
 
     /** 进入伪装的时刻：短时间内忽略残余 mousemove，避免刚盖上又被撤销 */
     let stealthAt = 0;
@@ -45,7 +33,17 @@
       stealth = true;
       stealthAt = performance.now();
     };
+    const exitStealth = () => {
+      stealth = false;
+    };
 
+    const cleanups: (() => void)[] = [
+      () => {
+        document.title = original;
+      },
+    ];
+
+    // 侧栏与网页统一：指针离开当前页面就伪装，移回就恢复
     /**
      * 判定「指针离开文档」：relatedTarget 为空说明不是移到页面内某个元素。
      * 只靠 mouseleave 在部分浏览器/快速移出时会漏，所以 mouseout / pointerleave /
@@ -67,11 +65,9 @@
         const { clientX: x, clientY: y } = e;
         if (x <= 0 || y <= 0 || x >= window.innerWidth || y >= window.innerHeight) return;
       }
-      stealth = false;
+      exitStealth();
     };
-    const onBlur = () => {
-      enterStealth();
-    };
+    const onBlur = () => enterStealth();
     /** 切到别的标签页时也挡住，回来不会先闪一下正文 */
     const onVisibility = () => {
       if (document.hidden) enterStealth();
@@ -90,9 +86,7 @@
     document.addEventListener('pointermove', onEnter, { passive: true });
     window.addEventListener('focus', onEnter);
 
-    return () => {
-      document.title = original;
-      clearInterval(clockTimer);
+    cleanups.push(() => {
       document.removeEventListener('mouseout', onOut);
       window.removeEventListener('mouseout', onOut);
       root.removeEventListener('pointerleave', onLeave);
@@ -102,7 +96,32 @@
       document.removeEventListener('mousemove', onEnter);
       document.removeEventListener('pointermove', onEnter);
       window.removeEventListener('focus', onEnter);
-    };
+    });
+
+    // 侧栏额外保留全局快捷键（Ctrl/Cmd+Shift+H），窗口失焦也由上面的 blur 兜底
+    if (isExtension) {
+      const toggle = () => (stealth ? exitStealth() : enterStealth());
+      type MessageListener = (msg: unknown) => void;
+      const ext = (
+        globalThis as {
+          chrome?: {
+            runtime?: {
+              onMessage?: {
+                addListener: (fn: MessageListener) => void;
+                removeListener?: (fn: MessageListener) => void;
+              };
+            };
+          };
+        }
+      ).chrome;
+      const onMessage: MessageListener = (msg) => {
+        if ((msg as { type?: string } | null)?.type === 'reader:toggle-stealth') toggle();
+      };
+      ext?.runtime?.onMessage?.addListener(onMessage);
+      cleanups.push(() => ext?.runtime?.onMessage?.removeListener?.(onMessage));
+    }
+
+    return () => cleanups.forEach((fn) => fn());
   });
 
   // 关掉开关时立刻退出伪装，避免下次开启时残留
@@ -555,93 +574,52 @@
 
   {#if stealthVisible}
     <div class="stealth" aria-hidden="true">
-      <div class="wd-app">
-        <header class="wd-titlebar">
-          <span class="wd-icon">W</span>
-          <span class="wd-filename">工作安排.docx - Word</span>
-          <span class="wd-winctl"><i></i><i></i><i></i></span>
-        </header>
+      <div class="ds-app">
+        <aside class="ds-side">
+          <div class="ds-brand">deepseek</div>
+          <div class="ds-new">＋ 新建对话</div>
+          <div class="ds-group">今天</div>
+          <div class="ds-item on">前端首屏加载优化方案</div>
+          <div class="ds-item">接口联调排期确认</div>
+          <div class="ds-item">周报模板整理</div>
+          <div class="ds-group">更早</div>
+          <div class="ds-item">值班安排确认</div>
+          <div class="ds-foot">叶工</div>
+        </aside>
 
-        <nav class="wd-tabs">
-          <span class="on">文件</span>
-          <span>开始</span>
-          <span>插入</span>
-          <span>布局</span>
-          <span>引用</span>
-          <span>审阅</span>
-          <span>视图</span>
-        </nav>
+        <main class="ds-main">
+          <header class="ds-top">
+            <span class="ds-model">DeepSeek-V4-Pro <i>▾</i></span>
+            <span class="ds-top-actions">分享 · 更多</span>
+          </header>
 
-        <div class="wd-ribbon">
-          <div class="wd-group">
-            <span class="wd-big">粘贴</span>
-            <div class="wd-stack"><span>剪切</span><span>复制</span><span>格式刷</span></div>
-          </div>
-          <div class="wd-sep"></div>
-          <div class="wd-group">
-            <div class="wd-row">
-              <span class="wd-box">等线</span><span class="wd-box sm">小四</span>
+          <div class="ds-chat">
+            <div class="ds-msg user">
+              <div class="ds-bubble">怎么优化首屏加载速度？现在页面打开要 3 秒多。</div>
             </div>
-            <div class="wd-row">
-              <b>B</b><i>I</i><u>U</u><span class="wd-swatch"></span><span class="wd-swatch y"
-              ></span>
-            </div>
-          </div>
-          <div class="wd-sep"></div>
-          <div class="wd-group">
-            <div class="wd-row">
-              <span class="wd-box sm">≡</span><span class="wd-box sm">☰</span><span
-                class="wd-box sm">≣</span
-              >
-            </div>
-            <div class="wd-row">
-              <span class="wd-box sm">•</span><span class="wd-box sm">1.</span><span
-                class="wd-box sm">↕</span
-              >
+
+            <div class="ds-msg ai">
+              <div class="ds-avatar">D</div>
+              <div class="ds-bubble">
+                <p>可以从几个方向排查，按收益排序：</p>
+                <p>
+                  <b>1. 资源体积</b>：首屏 JS/CSS 拆包、路由级懒加载，图片改用 WebP 并预留尺寸。
+                </p>
+                <p><b>2. 请求链路</b>：关键接口做服务端聚合，静态资源上 CDN，开启 HTTP/2。</p>
+                <p>
+                  <b>3. 渲染阻塞</b>：内联关键 CSS，非关键脚本加 defer，字体用 font-display: swap。
+                </p>
+                <p><b>4. 缓存</b>：HTML 短缓存，静态资源带 hash 长缓存，二次访问直接命中。</p>
+                <p>建议先用 Lighthouse 跑一遍拿到具体瓶颈，再决定先改哪一块。</p>
+              </div>
             </div>
           </div>
-          <div class="wd-sep"></div>
-          <div class="wd-group">
-            <div class="wd-row">
-              <span class="wd-box">正文</span><span class="wd-box">标题 1</span><span class="wd-box"
-                >标题 2</span
-              >
-            </div>
-            <div class="wd-row"><span class="wd-box">样式窗格</span></div>
+
+          <div class="ds-composer">
+            <div class="ds-input">给 DeepSeek 发送消息</div>
+            <div class="ds-tools"><span>深度思考 (R1)</span><span>联网搜索</span></div>
           </div>
-        </div>
-
-        <div class="wd-canvas">
-          <article class="wd-page">
-            <h1>工作安排</h1>
-            <p class="wd-meta">时间：{rangeText}&nbsp;&nbsp;&nbsp;负责人：叶工</p>
-            <p class="wd-meta">参与：产品、研发、测试、运营</p>
-
-            <h2>一、本周重点</h2>
-            <p>1. 完成版本联调与回归，输出验收清单；</p>
-            <p>2. 补齐监控告警与容量评估；</p>
-            <p>3. 整理用户反馈，排出下个版本的优先级。</p>
-
-            <h2>二、具体安排</h2>
-            <p>1. 周一：需求对齐，确认排期与资源；</p>
-            <p>2. 周三：部署联调环境，开始回归测试；</p>
-            <p>3. 周五：版本复盘，输出问题清单与改进项。</p>
-
-            <h2>三、注意事项</h2>
-            <p>1. 灰度范围与时间点需提前确认；</p>
-            <p>2. 压测环境资源由测试同学跟进；</p>
-            <p>3. 上线后的值班安排，下周一同步。</p>
-
-            <p class="wd-sign">制定人：叶工<br />{todayText}</p>
-          </article>
-        </div>
-
-        <footer class="wd-status">
-          <span>第 1 页，共 1 页</span>
-          <span>386 个字</span>
-          <span>中文(中国)</span>
-          <span class="wd-zoom">100%</span>
-        </footer>
+        </main>
       </div>
     </div>
   {/if}
@@ -866,277 +844,235 @@
     }
   }
 
-  /* ---------- 摸鱼模式：伪装成 Word 文档 ---------- */
+  /* 浏览器侧栏最窄约 300px：底部工具栏 5 个按钮要能放下 */
+  @media (max-width: 340px) {
+    .tools.left {
+      gap: 2px;
+      padding: 5px 6px;
+    }
+
+    .tools button {
+      width: 50px;
+      font-size: 10px;
+    }
+
+    .paper {
+      padding-left: 14px;
+      padding-right: 14px;
+    }
+  }
+
+  /* ---------- 摸鱼模式：伪装成 DeepSeek 对话页 ---------- */
   .stealth {
     position: fixed;
     inset: 0;
     z-index: 999;
     display: flex;
     color: #1f2328;
-    background: #f3f2f1;
-    font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    background: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
     -webkit-font-smoothing: antialiased;
   }
 
-  .wd-app {
+  .ds-app {
     flex: 1;
     min-width: 0;
+    display: flex;
+  }
+
+  .ds-side {
+    width: 232px;
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
-  }
-
-  .wd-titlebar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    height: 36px;
-    padding: 0 12px;
-    background: #2b579a;
-    color: #fff;
+    gap: 4px;
+    padding: 14px 10px;
+    background: #f9f9f9;
+    border-right: 1px solid #ececec;
     font-size: 12.5px;
+    color: #3d3d3d;
   }
 
-  .wd-icon {
-    display: grid;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 3px;
-    background: #fff;
-    color: #2b579a;
-    font-size: 11px;
+  .ds-brand {
+    padding: 0 8px 10px;
+    font-size: 15px;
     font-weight: 700;
+    letter-spacing: 0.2px;
+    color: #4d6bfe;
   }
 
-  .wd-filename {
-    flex: 1;
-    min-width: 0;
+  .ds-new {
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: #eef1ff;
+    color: #4d6bfe;
+    font-weight: 600;
+  }
+
+  .ds-group {
+    margin: 12px 8px 2px;
+    font-size: 10.5px;
+    color: #9a9a9a;
+  }
+
+  .ds-item {
+    padding: 7px 10px;
+    border-radius: 8px;
+    color: #4a4a4a;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
   }
 
-  .wd-winctl {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .wd-winctl i {
-    width: 10px;
-    height: 10px;
-    border: 1.2px solid rgba(255, 255, 255, 0.85);
-  }
-
-  .wd-winctl i:first-child {
-    height: 1.5px;
-    border: 0;
-    background: rgba(255, 255, 255, 0.85);
-  }
-
-  .wd-tabs {
-    display: flex;
-    align-items: flex-end;
-    gap: 2px;
-    height: 34px;
-    padding: 0 10px;
-    background: #fff;
-    border-bottom: 1px solid #e1dfdd;
-    font-size: 12.5px;
-    color: #444;
-    overflow: hidden;
-  }
-
-  .wd-tabs span {
-    padding: 6px 12px;
-    border-radius: 4px 4px 0 0;
-    white-space: nowrap;
-  }
-
-  .wd-tabs .on {
-    color: #2b579a;
-    font-weight: 600;
-    box-shadow: inset 0 -2px 0 #2b579a;
-  }
-
-  .wd-ribbon {
-    display: flex;
-    align-items: stretch;
-    gap: 10px;
-    height: 78px;
-    padding: 8px 12px;
-    background: #fff;
-    border-bottom: 1px solid #e1dfdd;
-    overflow: hidden;
-  }
-
-  .wd-group {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    gap: 5px;
-    font-size: 10.5px;
-    color: #444;
-  }
-
-  .wd-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-
-  .wd-row b,
-  .wd-row i,
-  .wd-row u {
-    display: grid;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    border: 1px solid #d9d9d9;
-    border-radius: 3px;
-    font-size: 11px;
-    font-weight: 600;
-    font-style: normal;
-    text-decoration: none;
-    color: #333;
-  }
-
-  .wd-big {
-    display: grid;
-    place-items: center;
-    width: 44px;
-    height: 44px;
-    border: 1px solid #d9d9d9;
-    border-radius: 3px;
-    color: #333;
-  }
-
-  .wd-stack {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    font-size: 9.5px;
-    color: #555;
-  }
-
-  .wd-sep {
-    width: 1px;
-    margin: 2px 4px;
-    background: #e1dfdd;
-  }
-
-  .wd-box {
-    display: inline-grid;
-    place-items: center;
-    min-width: 44px;
-    height: 22px;
-    padding: 0 6px;
-    border: 1px solid #d9d9d9;
-    border-radius: 3px;
-    background: #fafafa;
-    font-size: 10.5px;
-    color: #333;
-  }
-
-  .wd-box.sm {
-    min-width: 22px;
-  }
-
-  .wd-swatch {
-    width: 16px;
-    height: 16px;
-    border-radius: 2px;
-    background: #c00000;
-  }
-
-  .wd-swatch.y {
-    background: #ffc000;
-  }
-
-  .wd-canvas {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    padding: 20px 0 40px;
-    background: #e6e6e6;
-  }
-
-  .wd-page {
-    width: 794px;
-    min-height: 1000px;
-    margin: 0 auto;
-    padding: 88px 86px 96px;
-    background: #fff;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
-    color: #000;
-    font-family: 'DengXian', '等线', 'SimSun', '宋体', 'Microsoft YaHei', serif;
-    font-size: 15px;
-    line-height: 1.8;
-  }
-
-  .wd-page h1 {
-    margin: 0 0 26px;
-    font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-    font-size: 22px;
-    font-weight: 700;
-    text-align: center;
-    letter-spacing: 2px;
-  }
-
-  .wd-meta {
-    margin: 0 0 4px;
-    font-size: 14px;
+  .ds-item.on {
+    background: #ececec;
     color: #1f2328;
   }
 
-  .wd-page h2 {
-    margin: 26px 0 8px;
-    font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
-    font-size: 16px;
+  .ds-foot {
+    margin-top: auto;
+    padding: 8px 10px;
+    border-top: 1px solid #ececec;
+    color: #6b6b6b;
+  }
+
+  .ds-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ds-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 46px;
+    padding: 0 20px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 13px;
+    color: #333;
+  }
+
+  .ds-model {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+  }
+
+  .ds-model i {
+    font-style: normal;
+    font-size: 10px;
+    color: #9a9a9a;
+  }
+
+  .ds-top-actions {
+    font-size: 11.5px;
+    color: #9a9a9a;
+  }
+
+  .ds-chat {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 22px 20px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .ds-msg {
+    display: flex;
+    gap: 10px;
+  }
+
+  .ds-msg.user {
+    justify-content: flex-end;
+  }
+
+  .ds-msg.user .ds-bubble {
+    max-width: 78%;
+    padding: 10px 13px;
+    border-radius: 12px;
+    background: #eef1ff;
+    color: #1f2328;
+    font-size: 13px;
+    line-height: 1.75;
+  }
+
+  .ds-avatar {
+    flex: 0 0 26px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: #4d6bfe;
+    color: #fff;
+    font-size: 12px;
     font-weight: 700;
   }
 
-  .wd-page p {
-    margin: 0 0 6px;
+  .ds-msg.ai .ds-bubble {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.85;
+    color: #2b2b2b;
   }
 
-  .wd-sign {
-    margin-top: 40px;
-    text-align: right;
-    line-height: 1.9;
+  .ds-bubble p {
+    margin: 0 0 7px;
   }
 
-  .wd-status {
+  .ds-bubble b {
+    font-weight: 600;
+    color: #1f2328;
+  }
+
+  .ds-composer {
+    padding: 10px 20px 18px;
+  }
+
+  .ds-input {
+    padding: 12px 14px;
+    border: 1px solid #e2e2e2;
+    border-radius: 14px;
+    background: #fff;
+    color: #b0b0b0;
+    font-size: 13px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+  }
+
+  .ds-tools {
     display: flex;
-    align-items: center;
-    gap: 18px;
-    height: 26px;
-    padding: 0 14px;
-    background: #f3f2f1;
-    border-top: 1px solid #e1dfdd;
+    gap: 12px;
+    margin-top: 8px;
     font-size: 11px;
-    color: #555;
-  }
-
-  .wd-zoom {
-    margin-left: auto;
+    color: #9a9a9a;
   }
 
   @media (max-width: 860px) {
-    .wd-ribbon {
+    .ds-side {
       display: none;
     }
 
-    .wd-canvas {
-      padding: 12px 0 24px;
+    .ds-top {
+      padding: 0 12px;
     }
 
-    .wd-page {
-      width: auto;
-      min-height: 0;
-      margin: 0 10px;
-      padding: 36px 22px 48px;
-      font-size: 14px;
+    .ds-chat {
+      padding: 16px 12px 8px;
+      gap: 14px;
+    }
+
+    .ds-composer {
+      padding: 8px 12px 14px;
+    }
+
+    .ds-msg.user .ds-bubble {
+      max-width: 88%;
     }
   }
 </style>

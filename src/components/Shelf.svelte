@@ -186,7 +186,7 @@
         <span class="usage">本地存储</span>
       {/if}
       <div class="foot-right">
-        <span class="ver">reader-web v1.0.1</span>
+        <span class="ver">reader-web v1.0.2</span>
         {@render githubLink()}
       </div>
     </footer>
@@ -621,13 +621,25 @@
     .action em {
       display: none;
     }
-
     .main {
       padding: 16px;
     }
 
+    /* 单列时用 minmax(0, 1fr)：1fr 的最小值是 auto，会被卡片内容（封面 + nowrap 文案）
+       顶到 391px 左右，窄屏下就撑出容器、右侧被裁掉 */
     .grid {
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  /* 浏览器侧栏最窄约 300px：入口竖排，避免标题折字 */
+  @media (max-width: 340px) {
+    .actions {
+      flex-direction: column;
+    }
+
+    .action {
+      flex: 0 0 auto;
     }
   }
 </style>

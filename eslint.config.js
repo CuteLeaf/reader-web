@@ -4,7 +4,16 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', '.astro/**', 'public/**'] },
+  {
+    ignores: [
+      'dist/**',
+      'extension*/**',
+      'ext-submit/**',
+      'node_modules/**',
+      '.astro/**',
+      'public/**',
+    ],
+  },
 
   js.configs.recommended,
   ...tseslint.configs.recommended,
