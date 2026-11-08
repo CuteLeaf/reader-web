@@ -4,6 +4,13 @@
   import { themeById } from '../lib/reader/theme';
   import CatalogDrawer from './CatalogDrawer.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
+  import SelectionMenu from './SelectionMenu.svelte';
+  import TtsBar from './TtsBar.svelte';
+  import DictSheet from './DictSheet.svelte';
+  import { pickTerm, readSelection, type SelectionInfo } from '../lib/selection/selection';
+  import { tts } from '../lib/tts/player.svelte';
+  import { buildTextMap, rangeOf, type TextMap } from '../lib/reader/textMap';
+  import { splitSentenceRanges, type SentenceRange } from '../lib/tts/segment';
 
   /** 站点默认标题，离开阅读页时还原 */
   const SITE_TITLE = '阅读 · 电子书 Web 阅读器';
@@ -41,6 +48,9 @@
       () => {
         document.title = original;
       },
+      // 离开阅读页时把朗读与自动滚动停掉
+      () => tts.stop(),
+      () => stopAutoScroll(),
     ];
 
     // 侧栏与网页统一：指针离开当前页面就伪装，移回就恢复
@@ -140,6 +150,217 @@
   });
 
   let scroller = $state<HTMLDivElement | null>(null);
+
+  /* ---------------- 选中文字后的操作：朗读 / 查词 / 复制 ---------------- */
+  let selected = $state<SelectionInfo | null>(null);
+  let menuOpen = $state(false);
+  let dictTerm = $state('');
+  let dictOpen = $state(false);
+
+  /* ---------------- 自动滚动（免手动滚屏） ---------------- */
+  let autoScroll = $state(false);
+  let autoRaf = 0;
+  let autoLast = 0;
+  /** 1x 时的滚动速度，约每秒 34px，接近舒适阅读的节奏 */
+  const AUTO_BASE_SPEED = 34;
+
+  function autoTick(now: number): void {
+    if (!autoScroll || !scroller) return;
+    // 掉帧时 dt 可能很大，钳住避免一下跳好几屏
+    const dt = autoLast ? Math.min(now - autoLast, 120) : 16;
+    autoLast = now;
+
+    const max = scroller.scrollHeight - scroller.clientHeight;
+    if (scroller.scrollTop >= max - 1) {
+      if (app.chapterIndex < app.chapters.length - 1) {
+        void go(1);
+        autoRaf = requestAnimationFrame(autoTick);
+        return;
+      }
+      stopAutoScroll();
+      app.toast('已经是最后一章了', 'info');
+      return;
+    }
+
+    const px = AUTO_BASE_SPEED * app.settings.scrollSpeed * (dt / 1000);
+    scroller.scrollTop = Math.min(max, scroller.scrollTop + px);
+    autoRaf = requestAnimationFrame(autoTick);
+  }
+
+  function startAutoScroll(): void {
+    if (autoScroll || !scroller) return;
+    autoScroll = true;
+    autoLast = 0;
+    autoRaf = requestAnimationFrame(autoTick);
+  }
+
+  function stopAutoScroll(): void {
+    autoScroll = false;
+    if (autoRaf) cancelAnimationFrame(autoRaf);
+    autoRaf = 0;
+  }
+
+  function toggleAutoScroll(): void {
+    if (autoScroll) stopAutoScroll();
+    else startAutoScroll();
+  }
+
+  /** 用户主动滚屏就退出自动模式，避免「我滚它也滚」 */
+  $effect(() => {
+    if (!autoScroll) return;
+    const el = scroller;
+    if (!el) return;
+    const stop = () => stopAutoScroll();
+    el.addEventListener('wheel', stop, { passive: true });
+    el.addEventListener('touchstart', stop, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', stop);
+      el.removeEventListener('touchstart', stop);
+    };
+  });
+
+  /** 朗读时用于定位的正文文本坐标（不参与响应式，避免重复构建） */
+  let ttsMap: TextMap | null = null;
+  let ttsBase = 0;
+  let ttsRanges: SentenceRange[] = [];
+
+  /**
+   * 选区监听：pointerup 立刻响应，selectionchange 兜住移动端拖选手柄与键盘选择。
+   * 只做一次去抖，避免拖选过程中浮层跟着跳。
+   */
+  $effect(() => {
+    const root = scroller;
+    if (!root) return;
+
+    let timer = 0;
+    const insideOverlay = (target: EventTarget | null) =>
+      !!(target as Element | null)?.closest?.('.sel-menu, .dict');
+
+    const refresh = () => {
+      const info = readSelection(root);
+      selected = info;
+      menuOpen = !!info;
+    };
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = window.setTimeout(refresh, 120);
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (insideOverlay(e.target)) return;
+      schedule();
+    };
+    const onSelectionChange = () => schedule();
+    const onPointerDown = (e: PointerEvent) => {
+      // 点浮层本身不能收起，否则按钮的 click 还没触发就没了
+      if (insideOverlay(e.target)) return;
+      menuOpen = false;
+    };
+    const onScroll = () => {
+      menuOpen = false;
+    };
+
+    document.addEventListener('pointerup', onPointerUp);
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('selectionchange', onSelectionChange);
+    root.addEventListener('scroll', onScroll, { passive: true });
+
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('pointerup', onPointerUp);
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('selectionchange', onSelectionChange);
+      root.removeEventListener('scroll', onScroll);
+    };
+  });
+
+  /** 换章时停掉朗读，否则会继续念上一章的内容 */
+  let lastChapter = -1;
+  $effect(() => {
+    const index = app.chapterIndex;
+    if (lastChapter !== -1 && index !== lastChapter) tts.stop();
+    lastChapter = index;
+  });
+
+  function readSelected(): void {
+    if (!selected) return;
+
+    // 先断句并记录每句在正文中的位置，朗读时据此滚动
+    const content = scroller?.querySelector<HTMLElement>('.content');
+    const from = selected.from;
+    const to = selected.to;
+    const map = content && from && to ? buildTextMap(content) : null;
+    const startPara = map && from ? map.paras[from.para] : undefined;
+    const endPara = map && to ? map.paras[to.para] : undefined;
+    if (map && from && to && startPara && endPara) {
+      const start = startPara.start + from.offset;
+      const end = endPara.start + to.offset;
+      const ranges = splitSentenceRanges(map.text.slice(start, end));
+      if (ranges.length && tts.playChunks(ranges.map((r) => r.text))) {
+        ttsMap = map;
+        ttsBase = start;
+        ttsRanges = ranges;
+        menuOpen = false;
+        return;
+      }
+    }
+
+    ttsMap = null;
+    ttsBase = 0;
+    ttsRanges = [];
+    const ok = tts.play(selected.text);
+    if (!ok) app.toast('当前浏览器不支持语音朗读', 'error');
+    menuOpen = false;
+  }
+
+  /** 当前句滚到视口上方三分之一处；已经在舒适区内就不动，避免频繁抖动 */
+  function scrollToSentence(start: number, end: number): void {
+    if (!scroller || !ttsMap) return;
+    const range = rangeOf(ttsMap, start, end);
+    if (!range) return;
+    const rect = range.getBoundingClientRect();
+    if (!rect.height) return;
+    const box = scroller.getBoundingClientRect();
+    const comfortableTop = box.top + 72;
+    const comfortableBottom = box.bottom - 140;
+    if (rect.top >= comfortableTop && rect.bottom <= comfortableBottom) return;
+    const top = Math.max(0, scroller.scrollTop + (rect.top - box.top) - box.height * 0.3);
+    scroller.scrollTo({ top, behavior: 'smooth' });
+  }
+
+  // 朗读进度变化时跟随滚动
+  $effect(() => {
+    const index = tts.index;
+    const state = tts.state;
+    if (state !== 'playing' || !ttsRanges.length) return;
+    const range = ttsRanges[index];
+    if (range) scrollToSentence(ttsBase + range.start, ttsBase + range.end);
+  });
+
+  function lookupSelected(): void {
+    if (!selected) return;
+    const term = pickTerm(selected.text);
+    if (!term) {
+      app.toast('选中内容里没有可查询的词', 'info');
+      return;
+    }
+    dictTerm = term;
+    dictOpen = true;
+    menuOpen = false;
+  }
+
+  async function copySelected(): Promise<void> {
+    const text = selected?.text ?? '';
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      app.toast('已复制', 'success');
+    } catch {
+      app.toast('复制失败，请手动选择后复制', 'error');
+    }
+    menuOpen = false;
+  }
+
   // 换章后停在哪：上一章往回翻时停在底部，否则回到顶部
   let pendingAnchor: 'top' | 'bottom' = 'top';
   const theme = $derived(themeById(app.settings.theme));
@@ -391,6 +612,14 @@
     const target = e.target as HTMLElement | null;
     if (target && /INPUT|TEXTAREA|SELECT/.test(target.tagName)) return;
 
+    // 手动翻页/滚动视为接管，先退出自动滚动
+    if (
+      autoScroll &&
+      ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'PageUp', 'PageDown'].includes(e.key)
+    ) {
+      stopAutoScroll();
+    }
+
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
@@ -421,6 +650,19 @@
         void pageUp(true);
         break;
       case 'Escape':
+        // 优先关掉选区块、词典与朗读，最后才是退出阅读页
+        if (menuOpen) {
+          menuOpen = false;
+          break;
+        }
+        if (dictOpen) {
+          dictOpen = false;
+          break;
+        }
+        if (tts.state !== 'idle') {
+          tts.stop();
+          break;
+        }
         stopAnim();
         stopHold();
         app.backToShelf();
@@ -451,7 +693,13 @@
   <div class="progress"><div class="fill" style:width={`${progress}%`}></div></div>
 
   <nav class="tools left">
-    <button onclick={() => (app.catalogOpen = true)} title="目录">
+    <button
+      onclick={() => {
+        stopAutoScroll();
+        app.catalogOpen = true;
+      }}
+      title="目录"
+    >
       <svg viewBox="0 0 24 24" width="16" height="16"
         ><path
           d="M4 6h16M4 12h16M4 18h10"
@@ -463,7 +711,13 @@
       >
       <span>目录</span>
     </button>
-    <button onclick={() => (app.settingsOpen = true)} title="设置">
+    <button
+      onclick={() => {
+        stopAutoScroll();
+        app.settingsOpen = true;
+      }}
+      title="设置"
+    >
       <svg viewBox="0 0 24 24" width="16" height="16"
         ><circle
           cx="12"
@@ -480,6 +734,37 @@
         /></svg
       >
       <span>设置</span>
+    </button>
+    <button
+      class:on={autoScroll}
+      onclick={toggleAutoScroll}
+      title={autoScroll ? '暂停自动滚动' : '自动滚动'}
+      aria-pressed={autoScroll}
+    >
+      {#if autoScroll}
+        <svg viewBox="0 0 24 24" width="16" height="16"
+          ><rect x="7" y="6" width="3.6" height="12" rx="1.2" fill="currentColor" /><rect
+            x="13.4"
+            y="6"
+            width="3.6"
+            height="12"
+            rx="1.2"
+            fill="currentColor"
+          /></svg
+        >
+      {:else}
+        <svg viewBox="0 0 24 24" width="16" height="16"
+          ><path
+            d="M6 6l6 6 6-6M6 13l6 6 6-6"
+            stroke="currentColor"
+            stroke-width="1.7"
+            fill="none"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          /></svg
+        >
+      {/if}
+      <span>{autoScroll ? '暂停' : '滚动'}</span>
     </button>
     <button onclick={() => app.backToShelf()} title="返回书架">
       <svg viewBox="0 0 24 24" width="16" height="16"
@@ -571,6 +856,21 @@
 
   {#if app.catalogOpen}<CatalogDrawer />{/if}
   {#if app.settingsOpen}<SettingsDialog />{/if}
+
+  {#if menuOpen && selected}
+    <SelectionMenu
+      info={selected}
+      onread={readSelected}
+      ondict={lookupSelected}
+      oncopy={() => void copySelected()}
+    />
+  {/if}
+
+  {#if dictOpen}
+    <DictSheet term={dictTerm} onclose={() => (dictOpen = false)} />
+  {/if}
+
+  <TtsBar />
 
   {#if stealthVisible}
     <div class="stealth" aria-hidden="true">
@@ -691,6 +991,11 @@
   .tools button:hover {
     background: color-mix(in srgb, var(--r-text) 8%, transparent);
     color: var(--r-text);
+  }
+
+  .tools button.on {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
   /* 正文区：上下贴边不留白，左右保留纸张色块与边框，两侧衬底用 body 色 */
@@ -829,10 +1134,18 @@
       flex-direction: row;
       padding: 6px 8px;
       border-radius: 18px;
+      /* 窄屏放不下时可以横向滚动，不换行也不溢出 */
+      max-width: calc(100vw - 12px);
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .tools.left::-webkit-scrollbar {
+      display: none;
     }
 
     .tools button {
-      width: 58px;
+      width: 54px;
     }
 
     .chapter-head {
@@ -844,7 +1157,7 @@
     }
   }
 
-  /* 浏览器侧栏最窄约 300px：底部工具栏 5 个按钮要能放下 */
+  /* 浏览器侧栏最窄约 300px：底部工具栏 6 个按钮要能放下 */
   @media (max-width: 340px) {
     .tools.left {
       gap: 2px;
@@ -852,7 +1165,7 @@
     }
 
     .tools button {
-      width: 50px;
+      width: 46px;
       font-size: 10px;
     }
 

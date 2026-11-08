@@ -19,6 +19,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   keyScrollMode: 'page',
   scrollSpeed: 1,
   stealthMode: false,
+  ttsRate: 1,
+  dictChannel: '',
 };
 
 /** 默认主题从纯白改成米黄，老用户的旧设置做一次性迁移 */

@@ -16,6 +16,8 @@
     "preview": "astro preview",
     "build:ext": "astro build && node scripts/build-extension.mjs",
     "icons": "node scripts/gen-icons.mjs",
+    "test:tts": "node --experimental-strip-types scripts/test-tts.mjs",
+    "test:dict": "node --experimental-strip-types scripts/test-dict.mjs",
     "mock": "node scripts/mock-legado.mjs",
     "serve:dist": "node scripts/serve-dist.mjs"
   },

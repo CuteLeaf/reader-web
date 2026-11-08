@@ -3,9 +3,15 @@
   import { FONT_STACKS, THEMES } from '../lib/reader/theme';
   import { DEFAULT_SETTINGS } from '../lib/storage/settings';
   import { customFontStack, isCustomStack } from '../lib/reader/fonts';
+  import { offline } from '../lib/dict/offlineStore.svelte';
   import type { KeyScrollMode } from '../lib/types';
 
   const s = $derived(app.settings);
+
+  // 打开面板时同步一次离线词库状态（是否已下载、条目数）
+  $effect(() => {
+    void offline.refresh();
+  });
 
   /** 0 = 关闭；预取过多会持续占用后端连接 */
   const PREFETCH_OPTIONS = [0, 3, 5, 10];
@@ -166,8 +172,8 @@
           oninput={(e) => app.updateSettings({ scrollSpeed: +e.currentTarget.value })}
         />
         <p class="hint">
-          数值越大，翻页动画越快、按住滚动越快；PageUp / PageDown / 空格始终翻一整屏。 到底继续按 ↓
-          进入下一章，到顶按 ↑ 回到上一章末尾。
+          数值越大，翻页动画越快、按住滚动越快、自动滚屏也越快；PageUp / PageDown /
+          空格始终翻一整屏。 到底继续按 ↓ 进入下一章，到顶按 ↑ 回到上一章末尾。
         </p>
       </section>
 
@@ -269,6 +275,50 @@
         >
           <i></i>
         </button>
+      </section>
+
+      <section class="row offline">
+        <div class="offline-head">
+          <div>
+            <div class="label">离线词典</div>
+            <p class="hint">
+              下载后查词完全本地，不再联网。词库不随安装包分发，约 26 万条词语、 下载 27 MB
+              左右，占用浏览器存储。
+            </p>
+          </div>
+          {#if offline.downloading}
+            <button class="btn sm" disabled>下载中…</button>
+          {:else if offline.ready}
+            <button class="btn sm ghost" onclick={() => void offline.remove()}>删除</button>
+          {:else}
+            <button class="btn sm primary" onclick={() => void offline.download()}>下载</button>
+          {/if}
+        </div>
+
+        {#if offline.downloading}
+          <div
+            class="progress"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax={offline.total}
+            aria-valuenow={offline.done}
+          >
+            <i style:width={`${Math.round((offline.done / Math.max(1, offline.total)) * 100)}%`}
+            ></i>
+          </div>
+          <p class="hint small">{offline.done} / {offline.total} 个分片</p>
+        {:else if offline.ready}
+          <p class="hint small">
+            已安装 {offline.count.toLocaleString('zh-CN')} 条
+            {#if offline.updatedAt}· 更新于 {new Date(offline.updatedAt).toLocaleDateString(
+                'zh-CN',
+              )}{/if}
+          </p>
+        {/if}
+
+        {#if offline.error}
+          <p class="hint error">{offline.error}</p>
+        {/if}
       </section>
     </div>
 
@@ -595,6 +645,41 @@
 
   .modes button {
     min-width: 62px;
+  }
+
+  .offline-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .offline-head > div {
+    min-width: 0;
+  }
+
+  .progress {
+    margin-top: 10px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--panel-soft);
+    overflow: hidden;
+  }
+
+  .progress i {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.2s ease;
+  }
+
+  .hint.small {
+    margin-top: 6px;
+    font-size: 11px;
+  }
+
+  .hint.error {
+    color: var(--danger);
   }
 
   .hint {

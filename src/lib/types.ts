@@ -75,6 +75,10 @@ export interface ReaderSettings {
   scrollSpeed: number;
   /** 摸鱼模式：鼠标移出页面时用伪装页盖住正文，移回立即恢复 */
   stealthMode: boolean;
+  /** 朗读语速：0.5 ~ 2，1 为正常 */
+  ttsRate: number;
+  /** 上次使用的词典渠道 id，空表示按词条语言自动选 */
+  dictChannel: string;
 }
 
 /**
