@@ -180,7 +180,7 @@
       <button class="action" data-ld="open" onclick={() => (app.localDataOpen = true)}>
         <span class="ico">▤</span>
         <span>
-          <b>本地数据</b>
+          <b>本地数据管理</b>
           <em>查看、编辑与备份本机记录</em>
         </span>
       </button>
@@ -615,14 +615,21 @@
       margin-left: auto;
     }
 
+    /* 窄屏四个入口排成两列两行：挤成一排会把标题折成两三行 */
     .actions {
-      flex-direction: row;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .action {
-      flex: 1;
+      min-width: 0;
       padding: 9px 10px;
       border-style: solid;
+    }
+
+    /* 没连后端时只有三个入口，让落单的那个占满一行 */
+    .action:last-child:nth-child(odd) {
+      grid-column: 1 / -1;
     }
 
     .action em {
@@ -639,9 +646,10 @@
     }
   }
 
-  /* 浏览器侧栏最窄约 300px：入口竖排，避免标题折字 */
+  /* 浏览器侧栏最窄约 300px：回到竖排，两列也放不下完整标题 */
   @media (max-width: 340px) {
     .actions {
+      display: flex;
       flex-direction: column;
     }
 

@@ -2,6 +2,7 @@
   import { app } from '../stores/app.svelte';
   import { tts } from '../lib/tts/player.svelte';
   import { offline } from '../lib/dict/offlineStore.svelte';
+  import { openSearch } from '../lib/selection/search';
   import {
     channelAvailable,
     channelsFor,
@@ -25,6 +26,8 @@
   const channels = $derived(channelsFor(term).filter((c) => c.id !== 'offline' || offline.ready));
   const current = $derived(channels.find((c) => c.id === active) ?? channels[0] ?? null);
   const pageUrl = $derived(current?.url?.(term) ?? '');
+  /** 朗读条出现时，查词面板要抬到它上方，否则两个底部浮层会叠在一起 */
+  const hasPlayer = $derived(tts.state !== 'idle');
 
   // 打开面板时同步离线词库状态
   $effect(() => {
@@ -129,9 +132,16 @@
     const ok = tts.play(term);
     if (!ok) app.toast('当前浏览器不支持语音朗读', 'error');
   }
+
+  /** 和选取浮层用同一条搜索路径：扩展走浏览器默认搜索引擎，网页版走设置里选的引擎 */
+  function searchWord(): void {
+    if (!openSearch(term, app.settings.searchEngine)) {
+      app.toast('词条为空，无法搜索', 'info');
+    }
+  }
 </script>
 
-<section class="dict" aria-label="词典释义">
+<section class="dict" class:with-player={hasPlayer} aria-label="词典释义">
   <header class="head">
     <div class="title">
       <b>{term}</b>
@@ -215,6 +225,12 @@
 
   <footer class="foot">
     <button class="btn sm" onclick={readWord}>朗读该词</button>
+    <button
+      class="btn sm"
+      data-dict="search"
+      title="在新标签页搜索该词（扩展用浏览器默认搜索引擎，网页版用阅读设置里选的引擎）"
+      onclick={searchWord}>搜索该词</button
+    >
     {#if phase === 'error'}
       <button class="btn sm" onclick={() => (attempt += 1)}>重试</button>
     {/if}
@@ -242,6 +258,17 @@
     border: 1px solid var(--line);
     box-shadow: var(--shadow-md);
     animation: dict-in 0.16s ease-out;
+  }
+
+  /* 朗读条出现时抬到它上方并同宽对齐：两个 fixed 浮层不再互相遮挡 */
+  .dict.with-player {
+    bottom: calc(var(--tts-bottom) + var(--tts-height) + var(--tts-gap));
+    width: min(560px, calc(100vw - 24px));
+    max-height: min(
+      62vh,
+      460px,
+      calc(100vh - var(--tts-bottom) - var(--tts-height) - var(--tts-gap) - 12px)
+    );
   }
 
   @keyframes dict-in {
@@ -459,6 +486,11 @@
       bottom: 8px;
       width: calc(100vw - 16px);
       max-height: 62vh;
+    }
+
+    /* 窄屏按钮多，来源提示会挤到按钮上；渠道标签右侧已有当前来源，这里省略 */
+    .tip {
+      display: none;
     }
   }
 </style>

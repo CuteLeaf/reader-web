@@ -88,7 +88,8 @@
   .tts-bar {
     position: fixed;
     left: 50%;
-    bottom: 16px;
+    /* 高度 = 上下 padding 6px + 内容 32px + 边框 2px = 46px，与 :root 的 --tts-height 一致 */
+    bottom: var(--tts-bottom);
     z-index: 75;
     transform: translateX(-50%);
     width: min(560px, calc(100vw - 24px));
@@ -170,10 +171,5 @@
     border-color: var(--accent);
   }
 
-  /* 窄屏底部工具条高度约 60px，朗读条要压在它上面 */
-  @media (max-width: 760px) {
-    .tts-bar {
-      bottom: 76px;
-    }
-  }
+  /* 窄屏由 global.css 的媒体查询把 --tts-bottom 抬到 76px，避开底部工具条 */
 </style>

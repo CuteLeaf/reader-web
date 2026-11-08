@@ -16,6 +16,10 @@
   --radius: 14px;
   --font-ui: 'Inter', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
   --font-serif: 'Songti SC', 'Noto Serif SC', 'SimSun', serif;
+  /* 底部朗读条与查词面板共用的堆叠参数：两者同时出现时垂直错开，避免互相遮挡 */
+  --tts-bottom: 16px;
+  --tts-height: 46px;
+  --tts-gap: 10px;
 }
 
 * {
@@ -267,6 +271,10 @@ select {
 /* -------- 移动端 -------- */
 
 @media (max-width: 760px) {
+  /* 窄屏底部工具条约 60px，朗读条整体上移；查词面板会自动跟着抬到它上面 */
+  :root {
+    --tts-bottom: 76px;
+  }
   .backdrop {
     padding: 0;
     align-items: flex-end;

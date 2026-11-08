@@ -8,6 +8,7 @@
   import TtsBar from './TtsBar.svelte';
   import DictSheet from './DictSheet.svelte';
   import { pickTerm, readSelection, type SelectionInfo } from '../lib/selection/selection';
+  import { openSearch } from '../lib/selection/search';
   import { tts } from '../lib/tts/player.svelte';
   import { buildTextMap, rangeOf, type TextMap } from '../lib/reader/textMap';
   import { splitSentenceRanges, type SentenceRange } from '../lib/tts/segment';
@@ -346,6 +347,17 @@
     }
     dictTerm = term;
     dictOpen = true;
+    menuOpen = false;
+  }
+
+  /** 选中文字直接在新标签页搜索，不打断当前阅读位置 */
+  function searchSelected(): void {
+    if (!selected) return;
+    const mode = openSearch(selected.text, app.settings.searchEngine);
+    if (!mode) {
+      app.toast('选中内容为空，无法搜索', 'info');
+      return;
+    }
     menuOpen = false;
   }
 
@@ -862,6 +874,7 @@
       info={selected}
       onread={readSelected}
       ondict={lookupSelected}
+      onsearch={searchSelected}
       oncopy={() => void copySelected()}
     />
   {/if}

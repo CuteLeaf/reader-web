@@ -5,11 +5,13 @@
     info,
     onread,
     ondict,
+    onsearch,
     oncopy,
   }: {
     info: SelectionInfo;
     onread: () => void;
     ondict: () => void;
+    onsearch: () => void;
     oncopy: () => void;
   } = $props();
 
@@ -17,8 +19,8 @@
   const HEIGHT = 42;
   /** 与选区之间的间距 */
   const GAP = 10;
-  /** 浮层宽度的一半，用于把浮层钳制在视口内 */
-  const HALF = 96;
+  /** 浮层宽度的一半（四个按钮），用于把浮层钳制在视口内 */
+  const HALF = 128;
 
   /**
    * 定位：默认浮在选区上方；上方空间不足（比如选中的是第一行）就翻到下方。
@@ -71,6 +73,19 @@
       />
     </svg>
     查词
+  </button>
+  <button type="button" onclick={onsearch} title="在新标签页搜索选中文字" aria-label="搜索选中文字">
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.7" />
+      <path
+        d="M15 15l5 5"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.8"
+        stroke-linecap="round"
+      />
+    </svg>
+    搜索
   </button>
   <button type="button" onclick={oncopy}>
     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">

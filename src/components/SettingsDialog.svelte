@@ -4,7 +4,7 @@
   import { DEFAULT_SETTINGS } from '../lib/storage/settings';
   import { customFontStack, isCustomStack } from '../lib/reader/fonts';
   import { offline } from '../lib/dict/offlineStore.svelte';
-  import type { KeyScrollMode } from '../lib/types';
+  import type { KeyScrollMode, ReaderSettings } from '../lib/types';
 
   const s = $derived(app.settings);
 
@@ -21,6 +21,12 @@
     { value: 'half', label: '半屏', desc: '按一次滚动半屏，翻页更细，不容易跳过内容。' },
     { value: 'line', label: '逐行', desc: '按一次滚动一行，适合逐句细读或校对。' },
     { value: 'continuous', label: '按住连滚', desc: '按住 ↑↓ 持续滚动，松开即停；速度可调。' },
+  ];
+
+  const SEARCH_ENGINE_OPTIONS: { value: ReaderSettings['searchEngine']; label: string }[] = [
+    { value: 'baidu', label: '百度' },
+    { value: 'bing', label: '必应' },
+    { value: 'google', label: '谷歌' },
   ];
 
   const formatSpeed = (v: number): string => v.toFixed(2).replace(/\.?0+$/, '');
@@ -319,6 +325,24 @@
         {#if offline.error}
           <p class="hint error">{offline.error}</p>
         {/if}
+      </section>
+
+      <section class="row">
+        <div class="label"><span>选中文字后搜索</span></div>
+        <div class="seg modes" role="group" aria-label="网页版搜索引擎">
+          {#each SEARCH_ENGINE_OPTIONS as m (m.value)}
+            <button
+              class:active={s.searchEngine === m.value}
+              aria-pressed={s.searchEngine === m.value}
+              onclick={() => app.updateSettings({ searchEngine: m.value })}
+            >
+              {m.label}
+            </button>
+          {/each}
+        </div>
+        <p class="hint">
+          浏览器扩展会直接用你在浏览器里设置的默认搜索引擎；网页读不到默认引擎，只能在这里指定一个固定引擎。搜索结果在新标签页打开。
+        </p>
       </section>
 
       <section class="row inline">

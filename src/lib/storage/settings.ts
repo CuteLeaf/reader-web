@@ -25,6 +25,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   stealthMode: false,
   ttsRate: 1,
   dictChannel: '',
+  // 网页版拿不到浏览器默认搜索引擎，给一个中文场景可达的默认值；扩展版走 chrome.search
+  searchEngine: 'baidu',
 };
 
 /** 默认主题从纯白改成米黄，老用户的旧设置做一次性迁移 */

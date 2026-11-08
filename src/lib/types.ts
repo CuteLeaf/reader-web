@@ -79,6 +79,8 @@ export interface ReaderSettings {
   ttsRate: number;
   /** 上次使用的词典渠道 id，空表示按词条语言自动选 */
   dictChannel: string;
+  /** 网页版选中文字后用的搜索引擎；扩展版直接用浏览器默认搜索引擎 */
+  searchEngine: 'baidu' | 'bing' | 'google';
 }
 
 /**
