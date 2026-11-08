@@ -3,7 +3,7 @@
  * 局域网后端的接口请求（跨域）一律直连，绝不缓存，避免读到过期书架。
  */
 // 与 package.json 的 version 保持一致；改动会清空旧缓存，用于发版时强制刷新资源
-const VERSION = 'v1.0.2';
+const VERSION = 'v1.0.3';
 const CACHE = `reader-web-${VERSION}`;
 const scope = self.registration.scope;
 
