@@ -46,6 +46,10 @@
 
 [HapeLee/legado-with-MD3](https://github.com/HapeLee/legado-with-MD3)
 
+...
+
+理论上只要没魔改过原版 Legado 的 web 接口，都能兼容使用
+
 ---
 
 ## 3. 部署
