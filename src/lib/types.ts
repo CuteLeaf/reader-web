@@ -75,6 +75,10 @@ export interface ReaderSettings {
   scrollSpeed: number;
   /** 摸鱼模式：鼠标移出页面时用伪装页盖住正文，移回立即恢复 */
   stealthMode: boolean;
+  /** 底部状态栏：显示章节名与本章阅读百分比 */
+  showStatusBar: boolean;
+  /** 状态栏上沿的细进度条；默认关闭，需要时再开 */
+  showProgressBar: boolean;
   /** 朗读语速：0.5 ~ 2，1 为正常 */
   ttsRate: number;
   /** 上次使用的词典渠道 id，空表示按词条语言自动选 */

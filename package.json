@@ -1,6 +1,6 @@
 {
   "name": "reader-web",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Web 平台电子书阅读器，支持 TXT / EPUB 导入本地离线阅读，或发现局域网内的「Legado 3.0」后端服务，直接在浏览器中阅读。",
@@ -23,6 +23,8 @@
     "test:local-data-ui": "node scripts/test-local-data-ui.mjs",
     "test:search": "node --experimental-strip-types scripts/test-search.mjs",
     "test:ext-zip": "node scripts/test-ext-zip.mjs",
+    "test:tools-dock": "node scripts/test-tools-dock.mjs",
+    "test:status-bar": "node scripts/test-status-bar.mjs",
     "mock": "node scripts/mock-legado.mjs",
     "serve:dist": "node scripts/serve-dist.mjs"
   },

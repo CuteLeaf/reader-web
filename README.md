@@ -4,7 +4,7 @@
 
 支持导入 TXT/EPUB 文件本地离线阅读和局域网内的「Legado 3.0」后端连接
 
-[在线预览](http://reader.cuteleaf.cn) · [Edge 商店安装](https://microsoftedge.microsoft.com/addons/detail/aohchpbnjpifdijfeaphcbodhhokjjjj) · [下载扩展 zip](./reader-web-1.0.3.zip)
+[在线预览](http://reader.cuteleaf.cn) · [Edge 商店安装](https://microsoftedge.microsoft.com/addons/detail/aohchpbnjpifdijfeaphcbodhhokjjjj) · [下载扩展 zip](./reader-web-1.1.0.zip)
 
 </div>
 
@@ -26,7 +26,7 @@
 
 ### Chrome 等未上架浏览器
 
-1. 下载仓库根目录的 [reader-web-1.0.3.zip](./reader-web-1.0.3.zip)（发版时文件名会跟着版本号变，取最新的 `reader-web-*.zip`）；
+1. 下载仓库根目录的 [reader-web-1.1.0.zip](./reader-web-1.1.0.zip)（发版时文件名会跟着版本号变，取最新的 `reader-web-*.zip`）；
 2. 把 zip **解压**到一个固定文件夹。压缩包里 `manifest.json` 就在根目录，**不要**再套一层文件夹，否则浏览器会找不到清单文件
 3. 打开 `chrome://extensions`（Edge 为 `edge://extensions`），打开右上角的「**开发者人员模式**」（Chrome 里显示为「开发者模式」）
 4. 点「**加载已解压的扩展程序**」，选择第 2 步解压出来的文件夹

@@ -23,6 +23,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   keyScrollMode: 'page',
   scrollSpeed: 1,
   stealthMode: false,
+  showStatusBar: true,
+  showProgressBar: false,
   ttsRate: 1,
   dictChannel: '',
   // 网页版拿不到浏览器默认搜索引擎，给一个中文场景可达的默认值；扩展版走 chrome.search

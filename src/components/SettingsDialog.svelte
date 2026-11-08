@@ -283,6 +283,39 @@
         </button>
       </section>
 
+      <section class="row inline">
+        <div>
+          <div class="label">底部状态栏</div>
+          <p class="hint">在纸张底部常驻一行，显示章节名与本章阅读进度。</p>
+        </div>
+        <button
+          class="switch"
+          class:on={s.showStatusBar}
+          onclick={() => app.updateSettings({ showStatusBar: !s.showStatusBar })}
+          aria-pressed={s.showStatusBar}
+          aria-label="显示底部状态栏"
+        >
+          <i></i>
+        </button>
+      </section>
+
+      <section class="row inline">
+        <div>
+          <div class="label">状态栏进度条</div>
+          <p class="hint">在状态栏上沿加一条本章进度细线；关闭后只留右侧的百分比。</p>
+        </div>
+        <button
+          class="switch"
+          class:on={s.showProgressBar}
+          disabled={!s.showStatusBar}
+          onclick={() => app.updateSettings({ showProgressBar: !s.showProgressBar })}
+          aria-pressed={s.showProgressBar}
+          aria-label="显示状态栏进度条"
+        >
+          <i></i>
+        </button>
+      </section>
+
       <section class="row offline">
         <div class="offline-head">
           <div>
@@ -755,5 +788,10 @@
 
   .switch.on i {
     transform: translateX(18px);
+  }
+
+  .switch:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
   }
 </style>

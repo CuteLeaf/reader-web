@@ -19,6 +19,26 @@
   const FAKE_TITLE = 'DeepSeek - 探索未至之境';
 
   /**
+   * 窄屏工具栏：默认收起成右下角小把手，点开才展开六个按钮。
+   * 桌面端仍是左侧常驻竖排，把手由 CSS 隐藏。
+   */
+  let toolsOpen = $state(false);
+  /** 向下滚动时连把手一起隐藏，往回看或停下后恢复 */
+  let handleHidden = $state(false);
+
+  function closeTools(): void {
+    toolsOpen = false;
+  }
+
+  /** 点工具栏/把手以外的地方就收起；滚动正文时也收起，避免展开的 dock 挡字 */
+  function onWindowClick(e: MouseEvent): void {
+    if (!toolsOpen) return;
+    const target = e.target as Element | null;
+    if (target?.closest?.('.tools.left, .tools-handle')) return;
+    closeTools();
+  }
+
+  /**
    * 摸鱼模式：鼠标移出页面（或窗口失焦）时立刻盖上伪装页，
    * 鼠标移回 / 窗口重新聚焦时恢复。纯覆盖层，不卸载正文，进度与滚动位置都不变。
    */
@@ -52,6 +72,9 @@
       // 离开阅读页时把朗读与自动滚动停掉
       () => tts.stop(),
       () => stopAutoScroll(),
+      () => {
+        if (handleTimer) clearTimeout(handleTimer);
+      },
     ];
 
     // 侧栏与网页统一：指针离开当前页面就伪装，移回就恢复
@@ -376,9 +399,23 @@
   // 换章后停在哪：上一章往回翻时停在底部，否则回到顶部
   let pendingAnchor: 'top' | 'bottom' = 'top';
   const theme = $derived(themeById(app.settings.theme));
-  const progress = $derived(
-    app.chapters.length ? ((app.chapterIndex + 1) / app.chapters.length) * 100 : 0,
-  );
+  /** 本章阅读进度：按正文滚动位置算，内容不足一屏时视为已读完 */
+  let chapterPercent = $state(0);
+
+  function updateChapterPercent(el: HTMLDivElement | null = scroller): void {
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    chapterPercent = max <= 1 ? 100 : Math.min(100, Math.round((el.scrollTop / max) * 100));
+  }
+
+  // 换章、正文渲染完、恢复上次位置、开关状态栏后都要重算，避免沿用旧的百分比
+  $effect(() => {
+    void app.scrollToken;
+    void app.contentLoading;
+    void app.chapterIndex;
+    void app.settings.showStatusBar;
+    requestAnimationFrame(() => updateChapterPercent());
+  });
 
   $effect(() => {
     void app.scrollToken;
@@ -435,12 +472,45 @@
   let scrollRaf = 0;
 
   /** 滚动只上报位置，落盘与回传由 store 做防抖 */
+  let lastScrollTop = 0;
+  let handleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * 下移隐藏 / 上移恢复。自动滚屏虽然一直在下移，但把手是唯一的暂停入口，
+   * 所以这种情况下始终保持可见。
+   */
+  function updateHandleVisibility(): void {
+    if (autoScroll) {
+      if (handleTimer) clearTimeout(handleTimer);
+      handleHidden = false;
+      lastScrollTop = scroller?.scrollTop ?? lastScrollTop;
+      return;
+    }
+    const el = scroller;
+    if (!el) return;
+    const top = el.scrollTop;
+    const delta = top - lastScrollTop;
+    lastScrollTop = top;
+    if (delta > 4) handleHidden = true;
+    else if (delta < -4) handleHidden = false;
+    // 停下来后恢复，避免读完一段却找不到入口
+    if (handleTimer) clearTimeout(handleTimer);
+    handleTimer = setTimeout(() => {
+      handleHidden = false;
+    }, 1400);
+  }
+
   function onScroll(): void {
+    // 自动滚屏时正文一直在滚，此时不能收起 dock，否则「暂停」按钮一点开就消失
+    if (toolsOpen && !autoScroll) closeTools();
+    updateHandleVisibility();
     if (scrollRaf) return;
     scrollRaf = requestAnimationFrame(() => {
       scrollRaf = 0;
       const el = scroller;
-      if (!el || app.contentLoading) return;
+      if (!el) return;
+      updateChapterPercent(el);
+      if (app.contentLoading) return;
       app.reportProgress(charOffsetAt(el));
     });
   }
@@ -613,6 +683,11 @@
   }
 
   function onKeydown(e: KeyboardEvent): void {
+    // 展开的工具栏是最上层浮层：Esc 只收起它，不要继续走到「退出阅读页」
+    if (e.key === 'Escape' && toolsOpen) {
+      closeTools();
+      return;
+    }
     if (app.catalogOpen || app.settingsOpen) {
       stopHold();
       if (e.key === 'Escape') {
@@ -684,8 +759,10 @@
 </script>
 
 <svelte:window
+  onclick={onWindowClick}
   onkeydown={onKeydown}
   onkeyup={onKeyup}
+  onresize={() => updateChapterPercent()}
   onblur={() => {
     stopAnim();
     stopHold();
@@ -695,6 +772,7 @@
 
 <div
   class="reader"
+  class:with-status-bar={app.settings.showStatusBar}
   class:night={theme.night}
   style:--r-body={theme.body}
   style:--r-content={theme.content}
@@ -702,11 +780,52 @@
   style:--r-sub={theme.textSub}
   style:--r-border={theme.border}
 >
-  <div class="progress"><div class="fill" style:width={`${progress}%`}></div></div>
+  <button
+    class="tools-handle"
+    class:on={toolsOpen}
+    class:pausing={autoScroll}
+    class:hidden={handleHidden}
+    onclick={() => {
+      // 自动滚屏时把手直接兼作「暂停」，一步就能停，不必先展开再找按钮
+      if (autoScroll) {
+        stopAutoScroll();
+        closeTools();
+        return;
+      }
+      toolsOpen = !toolsOpen;
+    }}
+    aria-label={autoScroll ? '暂停自动滚动' : toolsOpen ? '收起工具栏' : '展开工具栏'}
+    aria-expanded={toolsOpen}
+    title={autoScroll ? '暂停自动滚动' : '展开工具栏'}
+  >
+    {#if autoScroll}
+      <svg viewBox="0 0 24 24" width="18" height="18"
+        ><rect x="7" y="6" width="3.6" height="12" rx="1.2" fill="currentColor" /><rect
+          x="13.4"
+          y="6"
+          width="3.6"
+          height="12"
+          rx="1.2"
+          fill="currentColor"
+        /></svg
+      >
+    {:else}
+      <svg viewBox="0 0 24 24" width="18" height="18"
+        ><path
+          d="M5 8h14M5 12h14M5 16h14"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          fill="none"
+        /></svg
+      >
+    {/if}
+  </button>
 
-  <nav class="tools left">
+  <nav class="tools left" class:open={toolsOpen}>
     <button
       onclick={() => {
+        closeTools();
         stopAutoScroll();
         app.catalogOpen = true;
       }}
@@ -725,6 +844,7 @@
     </button>
     <button
       onclick={() => {
+        closeTools();
         stopAutoScroll();
         app.settingsOpen = true;
       }}
@@ -749,7 +869,10 @@
     </button>
     <button
       class:on={autoScroll}
-      onclick={toggleAutoScroll}
+      onclick={() => {
+        closeTools();
+        toggleAutoScroll();
+      }}
       title={autoScroll ? '暂停自动滚动' : '自动滚动'}
       aria-pressed={autoScroll}
     >
@@ -778,7 +901,13 @@
       {/if}
       <span>{autoScroll ? '暂停' : '滚动'}</span>
     </button>
-    <button onclick={() => app.backToShelf()} title="返回书架">
+    <button
+      onclick={() => {
+        closeTools();
+        app.backToShelf();
+      }}
+      title="返回书架"
+    >
       <svg viewBox="0 0 24 24" width="16" height="16"
         ><path
           d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"
@@ -790,7 +919,13 @@
       >
       <span>书架</span>
     </button>
-    <button onclick={() => scroller?.scrollTo({ top: 0, behavior: 'smooth' })} title="回到顶部">
+    <button
+      onclick={() => {
+        closeTools();
+        scroller?.scrollTo({ top: 0, behavior: 'smooth' });
+      }}
+      title="回到顶部"
+    >
       <svg viewBox="0 0 24 24" width="16" height="16"
         ><path
           d="M12 19V6M6 12l6-6 6 6"
@@ -804,7 +939,10 @@
       <span>顶部</span>
     </button>
     <button
-      onclick={() => scroller?.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' })}
+      onclick={() => {
+        closeTools();
+        scroller?.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' });
+      }}
       title="回到底部"
     >
       <svg viewBox="0 0 24 24" width="16" height="16"
@@ -864,6 +1002,19 @@
         >
       </footer>
     </article>
+
+    {#if app.settings.showStatusBar}
+      <!-- 底部细状态栏：跟着纸张居中，左为章节名，右为本章阅读进度 -->
+      <div class="status-bar" style:max-width={`${app.settings.readWidth}px`} aria-label="阅读状态">
+        <div class="status-left">
+          <span class="status-title" title={app.chapterTitle}>{app.chapterTitle || '正文'}</span>
+        </div>
+        <div class="status-progress" title="本章阅读进度">{chapterPercent}%</div>
+        {#if app.settings.showProgressBar}
+          <div class="progress"><div class="fill" style:width={`${chapterPercent}%`}></div></div>
+        {/if}
+      </div>
+    {/if}
   </div>
 
   {#if app.catalogOpen}<CatalogDrawer />{/if}
@@ -940,6 +1091,10 @@
 
 <style>
   .reader {
+    /* 状态栏关掉时高度为 0，正文与浮层都回到原来的位置 */
+    --status-h: 0px;
+    /* 朗读条 / 查词面板跟着底部状态栏一起抬高 */
+    --tts-bottom: calc(16px + var(--status-h));
     position: relative;
     height: 100vh;
     height: 100dvh;
@@ -950,20 +1105,89 @@
       color 0.2s ease;
   }
 
+  .reader.with-status-bar {
+    --status-h: 26px;
+  }
+
+  @media (max-width: 760px) {
+    /* 窄屏底部还有工具条，抬高的基数与 global.css 保持一致 */
+    .reader {
+      --tts-bottom: calc(76px + var(--status-h));
+    }
+  }
+
+  /* 底部细状态栏：与纸张同宽、一起居中，滚动时粘在底部 */
+  .status-bar {
+    position: sticky;
+    bottom: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    height: var(--status-h);
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 56px;
+    background: var(--r-content);
+    border-left: 1px solid var(--r-border);
+    border-right: 1px solid var(--r-border);
+    border-top: 1px solid var(--r-border);
+    color: var(--r-sub);
+    font-size: 11px;
+    line-height: 1;
+    z-index: 55;
+  }
+
+  /* 可选进度条：贴在状态栏上沿，默认由设置关闭 */
   .progress {
-    position: fixed;
-    top: 0;
+    position: absolute;
+    top: -1px;
     left: 0;
     right: 0;
     height: 2px;
     background: color-mix(in srgb, var(--r-text) 12%, transparent);
-    z-index: 60;
   }
 
   .fill {
     height: 100%;
     background: var(--accent);
-    transition: width 0.24s ease;
+  }
+
+  .status-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .status-title {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--r-text);
+  }
+
+  .status-progress {
+    flex: 0 0 auto;
+    color: var(--r-text);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .status-progress::before {
+    content: '本章 ';
+    color: var(--r-sub);
+    font-weight: 400;
+  }
+
+  /* 窄屏才出现的小把手；桌面端保持左侧常驻竖排 */
+  .tools-handle {
+    display: none;
   }
 
   .tools.left {
@@ -1011,7 +1235,7 @@
     background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
-  /* 正文区：上下贴边不留白，左右保留纸张色块与边框，两侧衬底用 body 色 */
+  /* 正文区：状态栏在流内 sticky 占一行，左右保留纸张色块与边框 */
   .scroller {
     height: 100%;
     overflow-y: auto;
@@ -1021,7 +1245,7 @@
 
   .paper {
     margin: 0 auto;
-    min-height: 100%;
+    min-height: calc(100% - var(--status-h));
     background: var(--r-content);
     border-left: 1px solid var(--r-border);
     border-right: 1px solid var(--r-border);
@@ -1132,6 +1356,20 @@
       padding: 0;
     }
 
+    /* 侧栏很窄：状态栏跟随纸张铺满，省去「本章」字样 */
+    .status-bar {
+      max-width: 100% !important;
+      padding: 0 18px;
+      gap: 8px;
+      font-size: 10px;
+      border-left: none;
+      border-right: none;
+    }
+
+    .status-progress::before {
+      content: '';
+    }
+
     .paper {
       padding: 22px 18px 104px;
       max-width: 100% !important;
@@ -1139,11 +1377,59 @@
       border-right: none;
     }
 
+    /* 收起态：只在右下角留一个小把手，dock 不占位也不挡字 */
+    .tools-handle {
+      display: flex;
+      position: fixed;
+      right: 12px;
+      bottom: calc(12px + var(--status-h));
+      width: 34px;
+      height: 34px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      /* 实心底：半透明会透出正文笔画，反而糊字 */
+      background: var(--r-content);
+      border: 1px solid var(--r-border);
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.07);
+      color: var(--r-sub);
+      z-index: 52;
+      transition:
+        opacity 0.18s ease,
+        transform 0.18s ease,
+        color 0.18s ease,
+        border-color 0.18s ease;
+    }
+
+    .tools-handle:hover {
+      color: var(--r-text);
+      border-color: color-mix(in srgb, var(--r-sub) 55%, transparent);
+    }
+
+    /* 自动滚屏时这是唯一的暂停入口，给一点强调色 */
+    .tools-handle.pausing {
+      color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    }
+
+    .tools-handle.on {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.7);
+    }
+
+    /* 向下滚动时连把手一起隐去，往回看或停下后淡入 */
+    .tools-handle.hidden {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+    }
+
     .tools.left {
       left: 50%;
       top: auto;
-      bottom: 14px;
-      transform: translateX(-50%);
+      bottom: calc(14px + var(--status-h));
+      transform: translateX(-50%) translateY(10px);
       flex-direction: row;
       padding: 6px 8px;
       border-radius: 18px;
@@ -1151,6 +1437,17 @@
       max-width: calc(100vw - 12px);
       overflow-x: auto;
       scrollbar-width: none;
+      opacity: 0;
+      pointer-events: none;
+      transition:
+        opacity 0.18s ease,
+        transform 0.18s ease;
+    }
+
+    .tools.left.open {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateX(-50%) translateY(0);
     }
 
     .tools.left::-webkit-scrollbar {
