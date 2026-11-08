@@ -18,7 +18,7 @@
 | 浏览器 | 安装方式 |
 | --- | --- |
 | **Microsoft Edge** | 已上架，[从 Edge 加载项商店直接安装](https://microsoftedge.microsoft.com/addons/detail/aohchpbnjpifdijfeaphcbodhhokjjjj) |
-| **Chrome 及其他 Chromium 浏览器** | 未上架，需下载仓库里的扩展 zip 手动安装，并开启开发者人员模式 |
+| **Chrome 及其他 Chromium 浏览器** | 因上架要付费，所以未上架，需下载仓库里的扩展 zip 手动安装，并开启开发者人员模式 |
 
 ### Edge（已上架，推荐）
 
@@ -26,7 +26,7 @@
 
 ### Chrome 等未上架浏览器
 
-1. 下载仓库根目录的 [reader-web-1.0.3.zip](./reader-web-1.0.3.zip)（发版时文件名会跟着版本号变，取最新的 `reader-web-*.zip`；也可以[直接下载](https://raw.githubusercontent.com/CuteLeaf/reader-web/main/reader-web-1.0.3.zip)）
+1. 下载仓库根目录的 [reader-web-1.0.3.zip](./reader-web-1.0.3.zip)（发版时文件名会跟着版本号变，取最新的 `reader-web-*.zip`）；
 2. 把 zip **解压**到一个固定文件夹。压缩包里 `manifest.json` 就在根目录，**不要**再套一层文件夹，否则浏览器会找不到清单文件
 3. 打开 `chrome://extensions`（Edge 为 `edge://extensions`），打开右上角的「**开发者人员模式**」（Chrome 里显示为「开发者模式」）
 4. 点「**加载已解压的扩展程序**」，选择第 2 步解压出来的文件夹
@@ -88,16 +88,6 @@ pnpm mock
 ```
 
 `pnpm mock` 提供 2 本书、7 章正文，接口与真实后端一致并带 CORS 头，可完整验证"连接 → 目录 → 正文 → 翻章"。
-
-### 构建浏览器扩展
-
-```bash
-pnpm build:ext     # 构建网页 → 生成 extension/ 目录 → 打包 reader-web-<version>.zip
-pnpm ext:zip       # 只把已有的 extension/ 重新打包，不重新构建
-pnpm test:ext-zip  # 校验压缩包结构
-```
-
-打出来的 `reader-web-<version>.zip` 会提交到仓库（`.gitignore` 单独放行），供第 1 节里未上架商店的浏览器下载；`extension/` 目录也可以用「加载已解压的扩展程序」直接本地试用。压缩包用项目已有的 `fflate` 生成，`manifest.json` 位于根目录，并自动排除 `.DS_Store`、`Thumbs.db` 等系统文件。
 
 ### 代码风格与检查
 
