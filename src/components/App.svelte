@@ -6,6 +6,7 @@
   import ImportDialog from './ImportDialog.svelte';
   import SourceDialog from './SourceDialog.svelte';
   import SourceEditor from './SourceEditor.svelte';
+  import LocalDataDialog from './LocalDataDialog.svelte';
   import Toasts from './Toasts.svelte';
   import { app } from '../stores/app.svelte';
 
@@ -45,6 +46,10 @@
 
 {#if app.editorOpen}
   <SourceEditor />
+{/if}
+
+{#if app.localDataOpen}
+  <LocalDataDialog />
 {/if}
 
 <Toasts />

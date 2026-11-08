@@ -177,6 +177,13 @@
           </span>
         </button>
       {/if}
+      <button class="action" data-ld="open" onclick={() => (app.localDataOpen = true)}>
+        <span class="ico">▤</span>
+        <span>
+          <b>本地数据</b>
+          <em>查看、编辑与备份本机记录</em>
+        </span>
+      </button>
     </section>
 
     <footer class="side-foot">

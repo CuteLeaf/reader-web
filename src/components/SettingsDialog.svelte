@@ -320,6 +320,21 @@
           <p class="hint error">{offline.error}</p>
         {/if}
       </section>
+
+      <section class="row inline">
+        <div>
+          <div class="label">本地数据</div>
+          <p class="hint">查看、编辑、删除本机记录，可保存、重新加载或导出备份。</p>
+        </div>
+        <button
+          class="btn sm"
+          data-ld="open"
+          onclick={() => {
+            close();
+            app.localDataOpen = true;
+          }}>管理</button
+        >
+      </section>
     </div>
 
     <div class="panel-foot">

@@ -26,6 +26,7 @@ import {
   saveSettings,
   type ShelfFilter,
 } from '../lib/storage/settings';
+import { appLocalData } from '../lib/storage/localData';
 import {
   fetchBookshelf,
   fetchChapterContent,
@@ -134,6 +135,8 @@ class AppStore {
   importOpen = $state(false);
   catalogOpen = $state(false);
   settingsOpen = $state(false);
+  /** 本地数据管理面板（书架与阅读页共用同一个入口组件） */
+  localDataOpen = $state(false);
   toasts = $state<ToastItem[]>([]);
 
   /* ------------------------ 内部缓存 ------------------------ */
@@ -179,17 +182,8 @@ class AppStore {
 
   async init(): Promise<void> {
     this.settings = loadSettings();
-    try {
-      const raw = localStorage.getItem('reader:sourceTokens');
-      this.tokens = raw ? (JSON.parse(raw) as Record<string, string>) : {};
-      // 兼容早期只存一个令牌的存档
-      const legacy = localStorage.getItem('reader:sourceToken');
-      if (legacy && !Object.keys(this.tokens).length) {
-        this.tokens = { ...this.tokens, __legacy: legacy };
-      }
-    } catch {
-      /* ignore */
-    }
+    // 令牌统一由本地数据模块读写（含旧 reader:sourceToken / reader:sourceTokens 迁移）
+    this.tokens = appLocalData.tokenMap();
     try {
       this.fonts = await loadStoredFonts();
     } catch (e) {
@@ -216,6 +210,17 @@ class AppStore {
     }
 
     window.addEventListener('hashchange', () => this.restoreFromHash());
+  }
+
+  /**
+   * 本地数据面板保存 / 重新加载 / 恢复备份后，把界面状态与磁盘对齐。
+   * 这里只读不写盘，避免「重新加载」变成一次隐式保存，也不重新连接后端。
+   */
+  syncLocalData(): void {
+    const prefs = appLocalData.getPreferences();
+    this.settings = { ...DEFAULT_SETTINGS, ...prefs.settings };
+    this.tokens = appLocalData.tokenMap();
+    this.filter = prefs.filter;
   }
 
   private restoreFromHash(): void {
@@ -254,6 +259,12 @@ class AppStore {
       // 换后端后重新判断令牌能力，避免沿用上一个后端的结论
       this.sourceTokenRequired = null;
       saveLastEndpoint(info.base);
+      // 连过的地址自动进入本地数据，连接窗口与管理面板共用一份记录
+      try {
+        appLocalData.rememberEndpoint(info.base);
+      } catch {
+        /* 写盘失败不影响本次连接 */
+      }
       this.remoteBooks = info.books;
       this.endpointState = 'online';
       void this.probeSourceToken(info.base);
@@ -295,16 +306,12 @@ class AppStore {
   setSourceToken(token: string): void {
     const base = this.endpoint;
     if (!base) return;
-    const value = token.trim();
-    const next = { ...this.tokens };
-    if (value) next[base] = value;
-    else delete next[base];
-    this.tokens = next;
     try {
-      localStorage.setItem('reader:sourceTokens', JSON.stringify(next));
+      appLocalData.setToken(base, token.trim());
     } catch {
-      /* ignore */
+      /* 写盘失败不阻断本次会话，内存里的改动仍然生效 */
     }
+    this.tokens = appLocalData.tokenMap();
   }
 
   /** 问一下后端要不要令牌（MD3 等分支没有这个接口） */

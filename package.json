@@ -18,6 +18,8 @@
     "icons": "node scripts/gen-icons.mjs",
     "test:tts": "node --experimental-strip-types scripts/test-tts.mjs",
     "test:dict": "node --experimental-strip-types scripts/test-dict.mjs",
+    "test:local-data": "node --experimental-strip-types scripts/test-local-data.mjs",
+    "test:local-data-ui": "node scripts/test-local-data-ui.mjs",
     "mock": "node scripts/mock-legado.mjs",
     "serve:dist": "node scripts/serve-dist.mjs"
   },

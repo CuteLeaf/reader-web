@@ -10,6 +10,7 @@
   } from '../lib/sources/scan';
   import { normalizeBase } from '../lib/sources/legado';
   import { pageCannotUseLocalNetwork } from '../lib/sources/net';
+  import { appLocalData, type EndpointRecord } from '../lib/storage/localData';
 
   let prefix = $state('');
   let portsText = $state('1122');
@@ -18,9 +19,18 @@
   let progress = $state({ done: 0, total: 0 });
   let candidates = $state<ScanCandidate[]>([]);
   let scanError = $state('');
+  let manualError = $state('');
   let connecting = $state<string | null>(null);
   let subnetSource = $state<'page' | 'webrtc' | 'manual' | 'none'>('none');
+  /** 本地数据里保存过的后端，最近用过的排前面；连接成功会自动补一条 */
+  let saved = $state<EndpointRecord[]>([]);
   let ctrl: AbortController | null = null;
+
+  function refreshSaved(): void {
+    saved = appLocalData
+      .list('endpoints')
+      .sort((a, b) => (b.lastUsedAt ?? b.updatedAt) - (a.lastUsedAt ?? a.updatedAt));
+  }
 
   const isHttps = typeof location !== 'undefined' && location.protocol === 'https:';
   /** HTTP 公网页面：浏览器不允许访问本地网络（LNA 权限只在安全上下文可用） */
@@ -64,6 +74,7 @@
   });
 
   onMount(async () => {
+    refreshSaved();
     const fromPage = subnetFromLocation();
     if (fromPage) {
       prefix = fromPage;
@@ -159,9 +170,10 @@
     try {
       base = normalizeBase(manual);
     } catch (e) {
-      scanError = (e as Error).message;
+      manualError = (e as Error).message;
       return;
     }
+    manualError = '';
     await connect(base);
   }
 
@@ -186,11 +198,110 @@
     </div>
 
     <div class="modal-body">
+      <section class="manual-block">
+        <div class="manual">
+          <div class="field grow">
+            <label for="manual">手动输入地址（推荐：照抄手机上的地址）</label>
+            <input
+              id="manual"
+              class="input"
+              placeholder="192.168.31.187:1122"
+              bind:value={manual}
+              oninput={() => (manualError = '')}
+              onkeydown={(e) => e.key === 'Enter' && connectManual()}
+            />
+          </div>
+          <button
+            class="btn primary"
+            onclick={connectManual}
+            disabled={!manual.trim() || !!connecting}
+          >
+            {connecting && manualBase && connecting === manualBase ? '连接中…' : '连接'}
+          </button>
+        </div>
+
+        {#if manualError}
+          <div class="notice error">{manualError}</div>
+        {/if}
+
+        {#if connecting || app.endpointState === 'connecting'}
+          <p class="connect-note">
+            {app.connectNote || '正在连接…'}
+            <span class="muted">
+              手机端服务可能刚被唤醒，首次响应偏慢属正常；连不上会自动重试。
+              {isHttps ? '若地址栏提示「访问本地网络」，请选择允许。' : ''}
+            </span>
+          </p>
+        {/if}
+
+        {#if manualBase}
+          <p class="test-link">
+            连不上先自测：
+            <a href={`${manualBase}/getBookshelf`} target="_blank" rel="noreferrer"
+              >{manualBase}/getBookshelf</a
+            >
+            <span class="muted"
+              >能显示 JSON = 网络通、问题在跨域；打不开 = 服务没开或地址/端口不对</span
+            >
+          </p>
+        {/if}
+      </section>
+
+      {#if saved.length > 0}
+        <section class="saved">
+          <div class="saved-head">
+            <div>
+              <div class="saved-title">已保存的后端 <span>{saved.length}</span></div>
+              <p class="muted">
+                点地址填入上方输入框，或直接连接；备注与删除在「本地数据」里维护。
+              </p>
+            </div>
+            <button
+              class="btn sm ghost"
+              data-ld="manage"
+              onclick={() => {
+                close();
+                app.localDataOpen = true;
+              }}>管理</button
+            >
+          </div>
+          <ul class="saved-list">
+            {#each saved as e (e.id)}
+              <li class="saved-row" class:current={app.endpoint === e.base}>
+                <button
+                  class="saved-pick"
+                  data-ld="saved-pick"
+                  title={e.base}
+                  onclick={() => (manual = e.base)}
+                >
+                  <b>{e.label || e.base.replace(/^https?:\/\//, '')}</b>
+                  {#if e.label}<span>{e.base.replace(/^https?:\/\//, '')}</span>{/if}
+                  {#if app.endpoint === e.base}<em class="current-tag">当前连接</em>{/if}
+                  {#if e.lastUsedAt}
+                    <small>最近连接 {new Date(e.lastUsedAt).toLocaleDateString('zh-CN')}</small>
+                  {/if}
+                </button>
+                <button
+                  class="btn sm primary"
+                  data-ld="saved-connect"
+                  onclick={() => connect(e.base)}
+                  disabled={connecting === e.base}
+                >
+                  {connecting === e.base ? '连接中…' : '连接'}
+                </button>
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+
       {#if isHttps}
         <div class="notice">
           当前是 <b>HTTPS</b> 页面：首次连接局域网设备时，Chrome 会询问「是否允许访问本地网络」，请选择允许。若之前拒绝过，可在地址栏左侧的站点设置里重新开启。
         </div>
       {/if}
+
+      <div class="divider"></div>
 
       <div class="scan-line">
         <div class="field">
@@ -327,46 +438,6 @@
         </div>
       {/if}
 
-      <div class="divider"></div>
-
-      <div class="manual">
-        <div class="field grow">
-          <label for="manual">手动输入地址（推荐：照抄手机上的地址）</label>
-          <input
-            id="manual"
-            class="input"
-            placeholder="192.168.31.187:1122"
-            bind:value={manual}
-            onkeydown={(e) => e.key === 'Enter' && connectManual()}
-          />
-        </div>
-        <button class="btn" onclick={connectManual} disabled={!manual.trim() || !!connecting}>
-          {connecting && manualBase && connecting === manualBase ? '连接中…' : '连接'}
-        </button>
-      </div>
-
-      {#if connecting || app.endpointState === 'connecting'}
-        <p class="connect-note">
-          {app.connectNote || '正在连接…'}
-          <span class="muted">
-            手机端服务可能刚被唤醒，首次响应偏慢属正常；连不上会自动重试。
-            {isHttps ? '若地址栏提示「访问本地网络」，请选择允许。' : ''}
-          </span>
-        </p>
-      {/if}
-
-      {#if manualBase}
-        <p class="test-link">
-          连不上先自测：
-          <a href={`${manualBase}/getBookshelf`} target="_blank" rel="noreferrer"
-            >{manualBase}/getBookshelf</a
-          >
-          <span class="muted"
-            >能显示 JSON = 网络通、问题在跨域；打不开 = 服务没开或地址/端口不对</span
-          >
-        </p>
-      {/if}
-
       {#if lnaBlocked}
         <p class="test-link">
           <span class="muted"
@@ -376,7 +447,9 @@
         </p>
       {/if}
 
-      <p class="foot-note">连接信息只保存在本机 localStorage，不会上传。</p>
+      <p class="foot-note">
+        连接过的地址会自动记入本机的「本地数据」，下次打开可直接选择；不会上传。
+      </p>
     </div>
 
     <div class="modal-footer">
@@ -393,6 +466,96 @@
 </div>
 
 <style>
+  .saved {
+    margin-bottom: 14px;
+    padding: 12px 13px;
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    background: var(--panel-soft);
+  }
+
+  .saved-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .saved-title {
+    font-size: 12.5px;
+    color: var(--ink-soft);
+  }
+
+  .saved-title span {
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .saved-head p {
+    margin: 3px 0 0;
+  }
+
+  .saved-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .saved-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--panel);
+  }
+
+  .saved-row.current {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .saved-pick {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    text-align: left;
+  }
+
+  .saved-pick b {
+    max-width: 100%;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .saved-pick span,
+  .saved-pick small {
+    font-size: 10.5px;
+    color: var(--sub);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .current-tag {
+    font-style: normal;
+    font-size: 10px;
+    color: var(--green);
+  }
+
+  .saved-row .btn {
+    flex: 0 0 auto;
+  }
+
   .scan-line {
     display: flex;
     gap: 10px;
@@ -619,6 +782,10 @@
     padding: 1px 4px;
     border-radius: 4px;
     background: rgba(0, 0, 0, 0.06);
+  }
+
+  .manual-block {
+    margin-bottom: 14px;
   }
 
   .manual {
