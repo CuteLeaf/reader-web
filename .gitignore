@@ -5,6 +5,8 @@ extension*/
 ext-submit/
 *.crx
 *.zip
+# 扩展 zip 要提交到仓库，供未上架商店的浏览器下载安装
+!/reader-web-*.zip
 *.pem
 .DS_Store
 *.log
